@@ -80,6 +80,7 @@ js/textures.js        Prosedyretegnede mønstre
 - **Flere antrekk:** legg til i `OUTFITS` i `js/player/outfits.js` og eventuelt et nytt mønster i `PRINTS` i `js/textures.js`.
 - **Bølgene:** størrelse, settlengde og pauser justeres i `spawn()` og `update()` i `js/world/waves.js`.
 - **Timingvinduer:** `DUCK` og `DROP` øverst i `js/player/player.js`.
+- **Surfefølelse:** alle parametere for styring, brettets lean/følging av vannet, kroppsposituren og balanse/wipeout ligger samlet og kommentert i `js/player/tuning.js`. Prøv `?feel=arcade` (kvikk og tilgivende) eller `?feel=sim` (tyngre, mer momentum, lettere å falle) bak adressen.
 
 Valgt antrekk og brett lagres i nettleseren (localStorage).
 

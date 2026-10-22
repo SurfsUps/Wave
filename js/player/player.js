@@ -1,10 +1,11 @@
 // Spilleren: gåing på stranden, padling, duck dive, drop in, surfing/carving og wipeouts.
-import { Node, clamp, lerp, damp, dampAngle, wrapAngle, smoothstep } from '../engine/math.js';
+import { Node, Spring, clamp, lerp, damp, dampAngle, wrapAngle, smoothstep, wobble } from '../engine/math.js';
 import { Mesh, makeMaterial } from '../engine/renderer.js';
 import { hex } from '../engine/geometry.js';
 import { groundHeight } from '../world/terrain.js';
 import { SHOP, START } from '../world/props.js';
-import { Character, Poses, newPose, blendPose, setJ, addJ } from './character.js';
+import { Character, Poses, newPose, blendPose, setJ, addJ, plantFeet } from './character.js';
+import { TUNE } from './tuning.js';
 import { BOARDS, buildBoardGeo, buildFinsGeo, boardCanvas } from './boards.js';
 
 // Timingvinduer (sekunder før bølgen treffer)
@@ -62,6 +63,16 @@ export class Player {
     this.score = 0;
     this.messageCooldown = 0;
     this.shopYaw = 0;
+    // Visuell dynamikk for brett og kropp (fjærer). Påvirker bare utseendet, ikke styringen.
+    this.fx = {
+      t: 0,
+      pitch: new Spring(), roll: new Spring(), lean: new Spring(), yawOff: new Spring(), heave: new Spring(),
+      bodyLean: new Spring(), crouch: new Spring(0.4), arms: new Spring(),
+      wCarve: new Spring(), wUnbal: new Spring(), wLow: new Spring(),
+      supVy: 0, prevSup: null, chop: 0,
+    };
+    // tilstand for bevegelse: padling, lav fart, cruise, carve, ubalanse, luft, wipeout …
+    this.motion = { mode: 'gå', balance: 0, overT: 0, latG: 0 };
   }
 
   // ---------- utseende ----------
@@ -97,8 +108,16 @@ export class Player {
     this.fromLocal.board = this.local.board.slice();
     this.fromLocal.char = this.local.char.slice();
     this.blendT = 0;
-    this.blendDur = { paddle: 0.45, walk: 0.45, surf: 0.25, popup: 0.3, duck: 0.2, washed: 0.15, wipeout: 0.15, shop: 0.3 }[s] || 0.35;
+    this.blendDur = { paddle: 0.45, walk: 0.45, surf: 0.2, popup: 0.3, duck: 0.2, washed: 0.18, wipeout: 0.25, shop: 0.3 }[s] || 0.35;
+    this.fx.prevSup = null;
     const oldY = this.rigY;
+    const wasStanding = this.state === 'surf' || this.state === 'popup';
+    if (wasStanding && s !== 'surf' && s !== 'popup') {
+      // rail-lean overføres til roll-fjæra, så brettet ikke smeller flatt når man går av bølgen
+      this.fx.roll.x += this.surf.lean || 0;
+      this.surf.lean = 0;
+      this.fx.lean.reset(0);
+    }
     this.state = s;
     this.stateT = 0;
     // beregn ny rigg-høyde for å blende høydeforskjellen
@@ -108,7 +127,24 @@ export class Player {
   updateRigY() {
     const W = this.w.waves;
     if (this.state === 'walk' || this.state === 'shop' || this.state === 'talk') this.rigY = Math.max(groundHeight(this.x, this.z), -5);
-    else this.rigY = W.height(this.x, this.z) + (this.state === 'surf' || this.state === 'popup' ? 0.22 : 0.04);
+    else this.rigY = this.sampleSurface().support + (this.state === 'surf' || this.state === 'popup' ? TUNE.board.rideHeight : TUNE.board.paddleHeight);
+  }
+  // Måler vannflaten under nese, hale, begge railer og midten. Gir helning langs/på tvers av brettet
+  // og en «bærehøyde» som hindrer at brettet skjærer ned i vannet på buede bølgeflater.
+  sampleSurface() {
+    const W = this.w.waves, B = TUNE.board;
+    const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw), lx = fz, lz = -fx;
+    const sn = this.board.L * B.sampleNose, sr = B.sampleRail;
+    const x = this.x, z = this.z;
+    const hc = W.height(x, z);
+    const hn = W.height(x + fx * sn, z + fz * sn), ht = W.height(x - fx * sn, z - fz * sn);
+    const hl = W.height(x + lx * sr, z + lz * sr), hr = W.height(x - lx * sr, z - lz * sr);
+    return {
+      hc, hn, ht, sn,
+      pitch: -Math.atan((hn - ht) / (2 * sn)),
+      roll: Math.atan((hl - hr) / (2 * sr)),
+      support: Math.max(hc, (hn + ht) / 2, (hl + hr) / 2),
+    };
   }
   collide(nx, nz) {
     for (const c of this.w.colliders) {
@@ -552,7 +588,13 @@ export class Player {
     S.spinRest = 0;
     S.wob = 0;
     S.lastYawRate = 0;
+    S.pumpK = 0;
     this.yawRate = 0;
+    this.motion.balance = 0;
+    this.motion.overT = 0;
+    this.fx.lean.reset(0);
+    this.fx.bodyLean.reset(0);
+    this.fx.crouch.reset(0.9);
     const mem = this.waveMem.get(w.id);
     if (mem) mem.hit = true;
     this.setState('popup');
@@ -568,7 +610,7 @@ export class Player {
     if (!w || !W.waves.includes(w)) return this.endRide('Bølgen døde ut', 'paddle');
     if (S.air) return this.updateAir(dt, input);
     const popup = this.state === 'popup';
-    if (popup && this.stateT > 0.36) this.setState('surf');
+    if (popup && this.stateT > TUNE.states.popupDur) this.setState('surf');
     const turnStat = this.stat('turn'), speedStat = this.stat('speed');
     const cz = W.crestZ(w, S.x);
     const ev = W.eval(w, S.x, cz + S.d);
@@ -624,10 +666,17 @@ export class Player {
         }
       }
     }
-    // styring – myk respons, mindre styring under pop-up og hang ten
-    const ctrl = (popup ? 0.55 : 1) * (1 - S.hangK * 0.6);
-    const maxYaw = (1.35 + 0.95 * turnStat) * (1 - 0.22 * clamp(S.s / 15, 0, 1));
-    const resp = 2.6 + 2.2 * turnStat;
+    // styring – myk respons med treghet. Mindre styring under pop-up, hang ten og i lav fart;
+    // svingfarten begrenses av en minste svingradius, så høy fart gir lange, stabile carves.
+    const C = TUNE.control;
+    const lowK = smoothstep(C.lowSpeed, C.stableSpeed, S.s); // 0 = lav fart (vinglete), 1 = stabil
+    const ctrl = (popup ? 0.55 : 1) * (1 - S.hangK * 0.6) * lerp(C.lowSpeedControl, 1, lowK);
+    let maxYaw = (C.maxYaw + C.maxYawStat * turnStat) * (1 - C.highSpeedYawFalloff * clamp(S.s / 15, 0, 1));
+    const rMin = lerp(C.minTurnRadius[0], C.minTurnRadius[1], turnStat);
+    maxYaw = Math.min(maxYaw, Math.max(S.s / rMin, maxYaw * 0.55));
+    const resp = (C.turnResponse + C.turnResponseStat * turnStat) * lerp(0.7, 1, lowK);
+    // ufrivillig vingling ved lav fart og ubalanse
+    const wob = wobble(this.fx.t * 1.3, 1.7) * (C.lowSpeedWobble * (1 - lowK) + this.motion.balance * 0.4) * (popup ? 0.5 : 1);
     if (S.snap) {
       const SN = S.snap;
       SN.t += dt;
@@ -637,7 +686,7 @@ export class Player {
       this.yawRate = wrapAngle(this.yaw - prevYaw) / Math.max(dt, 1e-4);
       if (k >= 1) S.snap = null;
     } else {
-      this.yawRate = damp(this.yawRate, input.turn * maxYaw * ctrl, resp, dt);
+      this.yawRate = damp(this.yawRate, input.turn * maxYaw * ctrl + wob, resp, dt);
       this.yaw = wrapAngle(this.yaw + this.yawRate * dt);
     }
     cosY = Math.cos(this.yaw);
@@ -648,7 +697,7 @@ export class Player {
     const aG = 9.8 * 0.9 * slope * cosY;
     let aD = 1.85 * Math.min(face, 1) + 2.4 * pocket * Math.min(face, 1.2);
     let aDrag = 0.3 + 0.0105 * S.s * S.s;
-    const aTurn = S.snap ? 0 : 0.08 * this.yawRate * this.yawRate * S.s;
+    const aTurn = S.snap ? 0 : C.turnSpeedLoss * this.yawRate * this.yawRate * S.s;
     if (input.fwd > 0 && face > 0.2) aD += 1.2 * clamp(1 - S.s / 16, 0, 1);
     if (input.fwd < 0) aDrag += 2.8;
     // på nesa går brettet litt fortere (trim), men det er vanskeligere å svinge
@@ -691,30 +740,10 @@ export class Player {
       this.w.effects.railSpray(this.x - sinY * 0.6, yH, this.z - cosY * 0.6, ox, oz, clamp(carve / 9, 0.3, S.snap ? 2.4 : 1.6));
     }
     if (Math.random() < dt * 30) this.w.effects.wake(this.x - sinY * this.board.L * 0.45, yH, this.z - cosY * this.board.L * 0.45);
-    // pose
-    const lean = clamp(-this.yawRate * S.s * 0.045, -0.7, 0.7);
-    S.lean = damp(S.lean, lean, 6, dt);
-    const crouch = clamp(0.25 + S.s / 30 + (input.fwd > 0 ? 0.25 : 0) + Math.abs(S.lean) * 0.5, 0, 1);
+    // pose, balanse og tilstand (lav fart / cruise / carve / ubalanse)
     S.trick = S.snap ? 'snap' : S.hangK > 0.05 ? 'hang' : S.trick;
     S.trickK = damp(S.trickK, S.snap ? 1 : S.hangK, S.snap ? 14 : 8, dt);
-    Poses.stance(this.targetPose, S.lean / 0.7, crouch, this.stateT, input.fwd > 0 ? 1 : 0, { wob: S.wob, trick: S.trick, trickK: S.trick === 'hang' ? S.hangK : S.trickK });
-    const L = this.board.L, T = this.board.T;
-    if (popup) {
-      // fra liggende: armene presser opp, beina trekkes inn
-      Poses.paddle(this.targetPose, 0.0, 0, 0.5);
-      setJ(this.targetPose, 'shL', -1.75, 0, 0.45);
-      setJ(this.targetPose, 'shR', -1.75, 0, -0.45);
-      setJ(this.targetPose, 'elL', -0.2, 0, 0);
-      setJ(this.targetPose, 'elR', -0.2, 0, 0);
-      setJ(this.targetPose, 'hipL', -1.2, 0, 0.2);
-      setJ(this.targetPose, 'hipR', -0.6, 0, -0.2);
-      setJ(this.targetPose, 'knL', 1.8, 0, 0);
-      setJ(this.targetPose, 'knR', 1.2, 0, 0);
-      this.setLocals([0, -0.02, 0, 0, 0, 0], [0, T + 0.4, L * 0.12 - 1.0, Math.PI / 2 - 0.5, 0, 0]);
-    } else {
-      // på hang ten går surferen ut på nesa
-      this.setLocals([0, -0.02, 0, 0, 0, 0], [0, T - 0.02, lerp(-L * 0.06, L * 0.3, S.hangK), 0, -Math.PI / 2, 0]);
-    }
+    if (this.surfBody(dt, input, face, popup)) return this.wipe('Mistet balansen!');
     // hint om retning
     S.hint = '';
     const shoulderDir = w.dir ? w.dir : Math.sign(S.x - w.peak) || 1; // vekk fra toppen
@@ -734,6 +763,79 @@ export class Player {
       return this.endRide('Hvitvannet tok igjen', 'washed');
     }
     if (depth < 0.9 || w.zc > -4) return this.endRide('Ride ferdig', depth < 0.45 ? 'walk' : 'paddle', true);
+  }
+  // Kropp og balanse på brettet. Brettets lean (S.lean) styres av sideakselerasjonen og fjærer,
+  // kroppen henger litt etter brettet, føttene plantes med IK. Returnerer true ved balanse-wipeout.
+  surfBody(dt, input, face, popup) {
+    const S = this.surf, M = this.motion, fx = this.fx;
+    const C = TUNE.control, BD = TUNE.board, B = TUNE.body, BA = TUNE.balance, ST = TUNE.states;
+    const L = this.board.L, T = this.board.T;
+    const lowK = smoothstep(C.lowSpeed, C.stableSpeed, S.s);
+    // brettet legger seg på railen: tan(vinkel) = v·ω / g, mykere og løsere i lav fart
+    M.latG = (S.s * this.yawRate) / 9.8;
+    const leanT = clamp(-Math.atan(M.latG) * BD.leanGain, -BD.maxLean, BD.maxLean) * (popup ? 0.4 : 1);
+    S.lean = fx.lean.update(leanT, lerp(BD.leanFreqLow, BD.leanFreqHigh, lowK), lerp(BD.leanZetaLow, BD.leanZetaHigh, lowK), dt);
+    // balanse: lav fart, skarp sving i lav fart, veldig bratt vegg og ujevn sjø gjør deg ustø
+    const lowSpd = 1 - smoothstep(C.lowSpeed * 0.5, C.stableSpeed, S.s);
+    const turnDemand = clamp(Math.abs(this.yawRate) / 1.6, 0, 1);
+    let instab = BA.lowSpeedInstab * lowSpd + BA.hardTurnLowSpeed * turnDemand * lowSpd + BA.steepFace * smoothstep(1.0, 1.4, face) + BA.chop * fx.chop;
+    if (popup) instab *= 0.5;
+    M.balance = damp(M.balance, instab, instab > M.balance ? BA.rise : BA.recover, dt);
+    if (!popup && M.balance > BA.wipeoutThreshold) M.overT += dt;
+    else M.overT = Math.max(0, M.overT - dt * 2);
+    if (M.overT > BA.wipeoutHold) return true;
+    M.mode = popup ? 'popup' : M.balance > BA.unbalanceThreshold ? 'ubalanse' : Math.abs(M.latG) > ST.carveG ? 'carve' : S.s < ST.lowSpeed ? 'lav fart' : 'cruise';
+    // myke vekter for tilstandene (ingen brå hopp mellom poser)
+    const wCarve = fx.wCarve.update(smoothstep(ST.carveG * 0.5, ST.carveG * 1.5, Math.abs(M.latG)), ST.weightFreq, 1, dt);
+    const wUnbal = fx.wUnbal.update(smoothstep(BA.unbalanceThreshold * 0.7, BA.wipeoutThreshold, M.balance), ST.weightFreq, 0.8, dt);
+    const wLow = fx.wLow.update(1 - smoothstep(ST.lowSpeed * 0.6, ST.lowSpeed * 1.5, S.s), ST.weightFreq, 1, dt);
+    // kroppen lener seg etter brettet med litt forsinkelse (sekundærbevegelse)
+    const leanN = clamp((S.lean / BD.maxLean) * B.leanGain * (1 + 0.25 * wCarve), -B.maxLean, B.maxLean);
+    const bodyLean = fx.bodyLean.update(leanN, B.leanFreq, B.leanZeta, dt);
+    // armene jobber mot feilen mellom ønsket og faktisk lean, og mot vinglingen
+    const armT = (bodyLean - leanN) * B.armBalance * 3 + wobble(fx.t * 2.3, 5) * wUnbal * 0.5;
+    const armErr = fx.arms.update(armT, B.armFreq, B.armZeta, dt);
+    // knebøy: fart, sving, pumping, ujevn sjø og ubalanse. Landinger dytter fjæra ned.
+    const pump = input.fwd > 0 ? 1 : 0;
+    S.pumpK = damp(S.pumpK || 0, pump, 4, dt);
+    const crouchT = clamp(B.crouchBase + S.s * B.crouchSpeed + Math.abs(bodyLean) * B.crouchLean + pump * B.crouchPump + fx.chop * B.crouchChop + wUnbal * B.crouchImbalance + wCarve * 0.1 - wLow * 0.08, 0, 1);
+    const crouch = clamp(fx.crouch.update(popup ? 0.9 : crouchT, B.crouchFreq, B.crouchZeta, dt), 0, 1.15);
+    const toe = Math.max(0, bodyLean);
+    Poses.stance(this.targetPose, bodyLean, crouch, this.stateT, pump, {
+      wob: S.wob, trick: S.trick, trickK: S.trick === 'hang' ? S.hangK : S.trickK,
+      hipShift: bodyLean * B.hipShift, hipDrop: 0.05 + crouch * B.hipDrop + toe * 0.04,
+      balance: wUnbal + wLow * 0.25, armErr, twist: B.torsoTwist,
+      headTurn: -(S.lean / BD.maxLean) * B.headLookTurn,
+      level: [this.roll * B.headLevel, this.pitch * B.headLevel],
+    });
+    // føttene står fast på brettet (blandes ut i triks som flytter beina)
+    const sw = clamp(L * B.stanceWidth, B.stanceMin, B.stanceMax);
+    const trickK = S.trick === 'snap' ? 0 : S.trick === 'hang' ? S.hangK : S.trickK || 0;
+    plantFeet(this.targetPose, [sw / 2, B.ankleHeight, B.footToe], [-sw / 2, B.ankleHeight, B.footToe], B.frontFootAngle, B.backFootAngle, 1 - trickK);
+    if (popup) {
+      // pop-up i faser: armene presser overkroppen opp, knærne trekkes inn under, så lander man i knebøy
+      const k = clamp(this.stateT / ST.popupDur, 0, 1);
+      const e1 = smoothstep(0, 0.4, k), e2 = smoothstep(0.35, 0.9, k);
+      const press = Poses.paddle(newPose(), 0.0, 0, 0.5);
+      setJ(press, 'shL', -1.75 + e1 * 0.5, 0, 0.45);
+      setJ(press, 'shR', -1.75 + e1 * 0.5, 0, -0.45);
+      setJ(press, 'elL', -0.6 + e1 * 0.5, 0, 0);
+      setJ(press, 'elR', -0.6 + e1 * 0.5, 0, 0);
+      const tuck = smoothstep(0.15, 0.5, k);
+      setJ(press, 'hipL', -1.6 * tuck, 0, 0.2);
+      setJ(press, 'hipR', -1.0 * tuck, 0, -0.2);
+      setJ(press, 'knL', 0.4 + 1.8 * tuck, 0, 0);
+      setJ(press, 'knR', 0.4 + 1.4 * tuck, 0, 0);
+      blendPose(this.targetPose, press, this.targetPose, e2);
+      const prone = [0, T + 0.13, L * 0.12 - 1.25, Math.PI / 2, 0, 0];
+      const up = [0, T + 0.2, L * 0.12 - 1.05, Math.PI / 2 - 0.6, 0, 0];
+      const stand = [0, T - 0.02, L * TUNE.body.stanceCenter, 0, -Math.PI / 2, 0];
+      this.setLocals([0, -0.02, 0, 0, 0, 0], prone.map((v, i) => lerp(lerp(v, up[i], e1), stand[i], e2)));
+    } else {
+      // på hang ten går surferen ut på nesa
+      this.setLocals([0, -0.02, 0, 0, 0, 0], [0, T - 0.02, lerp(L * B.stanceCenter, L * 0.3, S.hangK), 0, -Math.PI / 2, 0]);
+    }
+    return false;
   }
   // Triks-poeng: combo-multiplikator for hvert triks på samme bølge
   award(name, pts) {
@@ -781,10 +883,12 @@ export class Player {
     this.yawRate = 0;
     S.trick = input.fwd > 0 ? 'grab' : 'air';
     S.trickK = damp(S.trickK, 1, 9, dt);
-    S.lean = damp(S.lean, 0, 4, dt);
+    S.lean = this.fx.lean.x;
     Poses.stance(this.targetPose, 0, 0.6, this.stateT, 0, { trick: S.trick, trickK: S.trickK });
     const L = this.board.L, T = this.board.T;
-    this.setLocals([0, -0.02, 0, 0, 0, 0], [0, T - 0.02, -L * 0.06, 0, -Math.PI / 2, 0]);
+    this.setLocals([0, -0.02, 0, 0, 0, 0], [0, T - 0.02, L * TUNE.body.stanceCenter, 0, -Math.PI / 2, 0]);
+    this.motion.mode = 'luft';
+    this.fx.lean.update(0, 3, 1, dt);
     const halves = Math.round(Math.abs(A.spin) / Math.PI);
     S.hint = halves > 0 ? `${halves * 180}°` + (A.grabT > 0.2 ? ' + grab' : '') : A.grabT > 0.2 ? 'Grab!' : 'A/D spinn · W grab';
     if (A.h > 0 || A.t < 0.15) return;
@@ -797,6 +901,11 @@ export class Player {
     const reverse = Math.abs(Math.abs(rem) - Math.PI) < 0.8;
     if (!clean && !reverse) return this.wipe('Skjev landing!');
     S.spinRest = rem; // brettet glir rundt igjen etter landing
+    // landingen tas opp i knærne og brettet dukker litt ned i vannet
+    const fall = Math.max(0, -A.vy);
+    this.fx.crouch.v += fall * TUNE.body.landingCompress * 10;
+    this.fx.heave.v -= fall * 0.25;
+    this.motion.balance += reverse ? TUNE.balance.landingReverse : TUNE.balance.landingClean;
     const deg = halves * 180;
     const grab = A.grabT > 0.2;
     let name = deg === 0 ? 'Air' : halves % 2 ? `Air reverse ${deg}` : `Air ${deg}`;
@@ -842,6 +951,10 @@ export class Player {
     S.w = null;
     S.air = null;
     S.hangK = 0;
+    this.fx.roll.v += (S.lean >= 0 ? 1 : -1) * 6;
+    this.motion.mode = 'wipeout';
+    this.motion.balance = 0;
+    this.motion.overT = 0;
     this.vz = 4.2;
     this.vx = Math.sin(this.yaw) * 2;
     this.setState('wipeout');
@@ -856,7 +969,9 @@ export class Player {
     this.proneLocals();
     if (Math.random() < dt * 20) this.w.effects.bubbles(this.x, W.height(this.x, this.z) - 0.8, this.z, 2);
     if (this.stateT > 1.9) {
-      this.yaw = Math.PI; // kommer opp med nesa ut mot havet
+      // kommer opp med nesa ut mot havet – den visuelle vridningen glir over i stedet for å smelle
+      this.fx.yawOff.x += wrapAngle(this.yaw - Math.PI);
+      this.yaw = Math.PI;
       this.setState('paddle');
       this.w.effects.splash(this.x, W.height(this.x, this.z), this.z, 12, 0.7);
       if (this.depthAt(this.x, this.z) < 0.4) this.setState('walk');
@@ -869,39 +984,78 @@ export class Player {
     this.local.char = ch;
   }
   applyRig(dt) {
-    const W = this.w.waves;
     const s = this.state;
-    // høyde og helning
-    this.updateRigY();
+    const BD = TUNE.board, fx = this.fx, S = this.surf;
+    const onLand = s === 'walk' || s === 'shop' || s === 'talk';
+    const standing = s === 'surf' || s === 'popup';
+    let pitch = 0, roll = 0, yawOff = 0;
+    fx.t += dt;
+    // høyde: måles under hele brettet, så brettet ikke skjærer ned i buede bølgeflater
+    let sf = null;
+    if (onLand) this.updateRigY();
+    else {
+      sf = this.sampleSurface();
+      this.rigY = sf.support + (standing ? BD.rideHeight : BD.paddleHeight);
+    }
     this.rigYOff = damp(this.rigYOff, 0, 6, dt);
     let y = this.rigY + this.rigYOff;
-    let pitch = 0, roll = 0;
-    if (s !== 'walk' && s !== 'shop' && s !== 'talk') {
-      const [gx, gz] = W.gradient(this.x, this.z, 0.6);
-      const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
-      const along = gx * fx + gz * fz;
-      const lx = Math.cos(this.yaw), lz = -Math.sin(this.yaw);
-      const side = gx * lx + gz * lz;
-      pitch = -Math.atan(along);
-      roll = Math.atan(side);
+    if (!onLand) {
+      const lowK = standing ? smoothstep(TUNE.control.lowSpeed, TUNE.control.stableSpeed, S.s) : 0;
+      const ft = fx.t;
+      // vannflatens akselerasjon under brettet (dønninger, bølgetopper) → bobbing og «ujevn sjø»
+      let surfAcc = 0;
+      if (fx.prevSup !== null && dt > 0) {
+        const vy = (sf.support - fx.prevSup) / dt;
+        surfAcc = clamp((vy - fx.supVy) / dt, -40, 40);
+        fx.supVy = damp(fx.supVy, vy, 12, dt);
+      } else fx.supVy = 0;
+      fx.prevSup = sf.support;
+      fx.chop = damp(fx.chop, clamp(Math.abs(surfAcc) / 30, 0, 1), 4, dt);
+      // målvinkler: følg bølgens helning (pitch langs, roll på tvers)
+      pitch = sf.pitch * BD.slopeFollow;
+      roll = sf.roll * BD.slopeFollow;
       if (s === 'paddle') {
         // gynging og nesa løftes når du padler
         pitch += Math.sin(this.paddlePh * 2) * 0.02 * this.paddlePower - 0.03 * this.paddlePower;
         roll += Math.sin(this.paddlePh) * 0.035 * this.paddlePower - this.yawRate * 0.08;
       }
-      if (s === 'surf' || s === 'popup') {
-        roll += this.surf.lean * 0.75;
-        if (this.surf.air) {
-          y += this.surf.air.h;
+      if (standing) {
+        // nesa løftes når brettet planer, gynger når man pumper; litt vingling i lav fart og små vibrasjoner i høy fart
+        pitch += -BD.planingPitch * smoothstep(4, 12, S.s) + (S.pumpK || 0) * Math.sin(this.stateT * 7) * BD.pumpPitch;
+        const chat = BD.chatter * smoothstep(6, 14, S.s) * (1 + fx.chop);
+        pitch += wobble(ft * 23, 7) * chat;
+        roll += wobble(ft * 2.1, 4) * 0.06 * (1 - lowK) + wobble(ft * 5.3, 2) * 0.08 * this.motion.balance + wobble(ft * 27, 3) * chat;
+        if (S.air) {
           pitch = pitch * 0.4 - 0.12;
           roll *= 0.4;
+        } else {
+          // halen skrenser litt ut i svinger, og brettet henger litt etter kursen
+          yawOff = clamp(this.yawRate * BD.slipAngle * smoothstep(3, 10, S.s), -0.16, 0.16);
         }
       }
+      // fjærer: stramt i høy fart, løsere på padling
+      const ff = standing ? BD.followFreq * lerp(1, 1.4, lowK) : BD.paddleFollowFreq;
+      const fz = standing ? BD.followZeta : BD.paddleFollowZeta;
+      pitch = fx.pitch.update(pitch, ff, fz, dt);
+      roll = fx.roll.update(roll, ff, fz, dt);
+      if (standing) roll += S.lean; // rail-lean fra carving (egen fjær i surfBody)
+      // vertikal fjær: bobbing + støt fra vannflaten
+      fx.heave.v -= surfAcc * dt * 0.3;
+      const bob = BD.bob * wobble(ft * 0.9, 3) * (standing ? 0.5 : 1);
+      fx.heave.update(bob, BD.heaveFreq, BD.heaveZeta, dt);
+      fx.heave.x = clamp(fx.heave.x, -BD.maxSink, 0.15);
+      y += fx.heave.x;
+      if (s === 'paddle' || (standing && !S.air)) {
+        // nese og hale skal ikke skjære ned i vannet: løft brettet ved behov
+        const sp = Math.sin(pitch) * sf.sn;
+        y = Math.max(y, sf.hn + sp + 0.02 - BD.maxSink, sf.ht - sp + 0.02 - BD.maxSink, sf.hc + 0.02 - BD.maxSink);
+      }
+      if (standing && S.air) y += S.air.h;
+      // tilstandseffekter som legges oppå (allerede myke funksjoner av tid)
       if (s === 'duck') {
         const T = this.stateT, D = this.duck;
         const down = smoothstep(0, 0.28, T) * (1 - smoothstep(D.maxT - 0.35, D.maxT, T));
-        const passedUp = D.good ? 1 : 1;
-        y -= down * 1.05 * passedUp;
+        y -= down * 1.05;
         pitch += 0.55 * smoothstep(0, 0.2, T) * (1 - smoothstep(0.2, 0.55, T)) - 0.35 * smoothstep(D.maxT - 0.5, D.maxT, T) * 0.5;
       }
       if (s === 'washed') {
@@ -916,15 +1070,22 @@ export class Player {
         roll += this.stateT * 6 * (1 - k);
         pitch += Math.sin(this.stateT * 5) * 0.8 * (1 - k);
       }
+      if (!standing) this.motion.mode = { paddle: this.speed < 0.6 ? 'ligger' : 'padling', duck: 'duck dive', washed: 'truffet', wipeout: 'wipeout' }[s] || s;
+    } else {
+      pitch = fx.pitch.update(0, 4, 1, dt);
+      roll = fx.roll.update(0, 4, 1, dt);
+      fx.heave.reset(0);
+      fx.lean.reset(0);
+      this.motion.mode = 'gå';
     }
-    this.pitch = damp(this.pitch, pitch, 10, dt);
-    this.roll = damp(this.roll, roll, s === 'surf' ? 8 : 10, dt);
+    this.pitch = pitch;
+    this.roll = roll;
+    this.yawVis = fx.yawOff.update(yawOff, BD.yawLagFreq, BD.yawLagZeta, dt);
     this.y = y;
     this.offX = damp(this.offX, 0, 5, dt);
     this.offZ = damp(this.offZ, 0, 5, dt);
-    const S = this.surf;
     const spin = s === 'surf' ? (S.air ? S.air.spin : S.spinRest || 0) : 0;
-    this.rig.set(this.x + this.offX, y, this.z + this.offZ, this.pitch, this.yaw + spin, this.roll);
+    this.rig.set(this.x + this.offX, y, this.z + this.offZ, this.pitch, this.yaw + spin + this.yawVis, this.roll);
     // blanding av pose og lokale transformasjoner
     this.blendT += dt;
     const k = ease(clamp(this.blendT / this.blendDur, 0, 1));
