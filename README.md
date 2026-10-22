@@ -29,13 +29,18 @@ Du kan også bruke `npx serve` eller «Live Server» i VS Code.
 |---|---|---|
 | Stranden | `W A S D` | Gå (kamera-relativt) |
 | | `Shift` | Løp |
-| | `E` | Åpne surfebutikken (ved disken) |
+| | `E` | Åpne surfebutikken (ved disken) / snakk med Chicken Joe og Cody ved bålet |
 | Vannet | `W` / `S` | Padle frem / bakover (bakover er merkbart saktere) |
 | | `A` / `D` | Snu brettet |
 | | `E` mot en brytende bølge | **Duck dive** |
 | | `E` når en ridebar bølge kommer bakfra | **Drop in** |
 | På bølgen | `A` / `D` | Carve. Hold inne for skarpere sving |
 | | `W` / `S` | Pump for fart / brems |
+| Triks | `Space` | Hopp (air) fra toppen av bølgen |
+| | `A` / `D` i lufta | Spinn (180, 360, 540 …) |
+| | `W` i lufta | Grab |
+| | `F` | Snap på leppa |
+| | Hold `Q` | Hang ten (gå ut på nesa) |
 | Overalt | Dra med musa / hjul | Se rundt / zoom |
 | | `H` / `M` | Hjelp / lyd av og på |
 
@@ -45,6 +50,13 @@ Du kan også bruke `npx serve` eller «Live Server» i VS Code.
 3. Ute i lineupen snur du deg mot land (`A`/`D`) og venter på et sett.
 4. Når en ridebar bølge nærmer seg bakfra, padler du (`W`) og trykker `E` i det grønne feltet for å droppe inn.
 5. Sving langs bølgeveggen, bort fra der den bryter. Nedover gir fart, oppover gir høyde, og skarpe svinger koster fart. Blir du for lenge i curlen, tar den deg.
+6. Gjør triks for ekstra surfepoeng. Flere triks på samme bølge gir combo. Lander du skjevt etter et hopp, blir det wipeout.
+
+### Bølgene
+Bølgene kommer i sett. Noen deler seg i midten (A-ramme), andre peeler bare til venstre eller høyre over bukta. Den siste bølgen i et sett er ofte en ekstra stor «bomb» som bryter lenger ute.
+
+### Chicken Joe og Cody
+Ved bålet sitter Chicken Joe og Cody. Gå bort og trykk `E` for å prate. Cody gir tips, og når du har 2000 surfepoeng gir Chicken Joe deg maisbrettet sitt. Surfepoeng og opplåste brett lagres i nettleseren.
 
 ## Filstruktur
 
@@ -56,7 +68,8 @@ js/engine/            WebGL2-renderer, matte og geometribyggere
 js/world/terrain.js   Bukta: sand, rev, odder og koller
 js/world/waves.js     Bølgesystemet (sett, oppbygging, bryting, peeling)
 js/world/water.js     Vann-shader, curl/leppe og skum
-js/world/props.js     Palmer, surfehytte, bål, håndklær, skilt, dyr …
+js/world/props.js     Palmer, surfehytte, bål, jungel, klipper, fjellstabler, dyr …
+js/world/npcs.js      Chicken Joe og Cody ved bålet, med replikker
 js/player/            Spiller-logikk, karakter, antrekk og brett
 js/game/              Kamera, input, HUD/butikk, partikler og lyd
 js/textures.js        Prosedyretegnede mønstre

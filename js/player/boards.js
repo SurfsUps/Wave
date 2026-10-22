@@ -39,6 +39,13 @@ export const BOARDS = [
     paint: { gradient: ['#6a3fb5', '#ff5fa2', '#ff9f45', '#ffd84d'], palm: '#ffe9a8', stringer: '#ffffff' },
     stats: { paddle: 0.56, speed: 0.96, turn: 0.84 },
   },
+  {
+    id: 'mais', name: 'Chicken Joes maisbrett', desc: 'Håndlaget av Chicken Joe. Ser ut som en maiskolbe, glir som en drøm. Gir ekstra triks-poeng.',
+    L: 2.45, W: 0.56, T: 0.075, noseP: 1.25, tailW: 0.3, tail: 'pin', wide: 0.42, fins: 1, rocker: 0.11,
+    paint: { corn: true },
+    stats: { paddle: 0.85, speed: 0.92, turn: 0.86 },
+    unlock: 2000, trickBonus: 1.25,
+  },
 ];
 
 function halfWidth(def, t) {

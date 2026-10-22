@@ -296,8 +296,15 @@ export class Water {
     this.lipEdges.length = 0;
     for (const w of W.waves) {
       const strips = [];
-      if (w.started) strips.push([-1, w.peak - w.wL, false], [1, w.peak + w.wR, false]);
-      else if (w.steep > 0.93) strips.push([-1, w.peak, true], [1, w.peak, true]);
+      // en bølge som bare peeler én vei har bare leppe på den siden (til den lukker seg ved land)
+      const useL = w.dir !== 1 || w.wL > 0.5, useR = w.dir !== -1 || w.wR > 0.5;
+      if (w.started) {
+        if (useL) strips.push([-1, w.peak - w.wL, false]);
+        if (useR) strips.push([1, w.peak + w.wR, false]);
+      } else if (w.steep > 0.93) {
+        if (w.dir !== 1) strips.push([-1, w.peak, true]);
+        if (w.dir !== -1) strips.push([1, w.peak, true]);
+      }
       for (const [side, edge, pre] of strips) {
         if (st >= 16) break;
         const base = st * NS * NA;

@@ -8,10 +8,18 @@ export function shoreZ(x) {
   return 4 - 0.0032 * x * x + 1.5 * Math.sin(x * 0.05);
 }
 
-function headlandMask(x, z) {
+export function headlandMask(x, z) {
   const bx = 98 - 0.3 * z;
   const q = Math.abs(x) - bx;
-  return smoothstep(-8, 14, q) * smoothstep(-210, -150, z);
+  return smoothstep(-7, 5, q) * smoothstep(-210, -150, z);
+}
+
+// Høye, bratte jungelklipper på oddene (som kalksteinsklippene i en tropisk bukt)
+function cliffHeight(x, z, q) {
+  const n = fbm(x * 0.03, z * 0.03, 4);
+  const rise = smoothstep(-1.5, 7, q);
+  const tall = 16 + 18 * n + 8 * smoothstep(-60, 40, z);
+  return 1.5 + rise * tall + Math.max(0, q) * 0.12 + (fbm(x * 0.12, z * 0.12, 2) - 0.5) * 2.5 * rise;
 }
 
 export function groundHeight(x, z) {
@@ -21,6 +29,8 @@ export function groundHeight(x, z) {
     g = 0.12 + s * 0.05;
     g += smoothstep(26, 44, s) * 1.1 * fbm(x * 0.05, z * 0.05, 3);
     g += smoothstep(38, 80, s) * (7 + 6 * fbm(x * 0.02 + 3, z * 0.02, 4));
+    // jungelkledd ås bak stranda
+    g += smoothstep(68, 112, s) * (12 + 12 * fbm(x * 0.025 - 5, z * 0.025, 4));
     g += (noise2(x * 0.35, z * 0.35) - 0.5) * 0.05; // sandkrusninger
   } else {
     g = -(1 - Math.exp(s / 10)) * 1.1 + s * 0.032;
@@ -32,7 +42,7 @@ export function groundHeight(x, z) {
   const m = headlandMask(x, z);
   if (m > 0) {
     const q = Math.abs(x) - (98 - 0.3 * z);
-    const hh = 2.5 + 11 * fbm(x * 0.035, z * 0.035, 4) + q * 0.22;
+    const hh = cliffHeight(x, z, q);
     g = g + (Math.max(g, hh) - g) * m;
   }
   return g;
@@ -65,9 +75,12 @@ export function terrainColor(x, z, g, ny) {
   // odder: stein med mose på toppen
   const m = headlandMask(x, z);
   if (m > 0.05) {
-    const rock = mixColor(hex('#8d7b6a'), hex('#6e6259'), fbm(x * 0.2, z * 0.2, 2));
-    let hc = rock;
-    if (ny > 0.8 && g > 4) hc = mixColor(rock, hex('#4f8a3a'), smoothstep(0.8, 0.92, ny));
+    // lys kalkstein med mørke, loddrette striper, og frodig jungel på toppen
+    const streak = fbm(x * 0.6 + z * 0.6, g * 0.05, 2);
+    const rock = mixColor(mixColor(hex('#c2b49c'), hex('#9a8a76'), fbm(x * 0.2, z * 0.2, 2)), hex('#5f5a4c'), smoothstep(0.55, 0.75, streak) * 0.6);
+    let hc = mixColor(rock, mixColor(hex('#3f7a34'), hex('#6f9a4a'), fbm(x * 0.3, z * 0.3, 2)), smoothstep(0.42, 0.62, fbm(x * 0.12 + z * 0.05, g * 0.18, 3)) * 0.85);
+    if (ny > 0.62 && g > 3) hc = mixColor(hc, mixColor(hex('#2f6d2c'), hex('#4f9a3a'), fbm(x * 0.1, z * 0.1, 2)), smoothstep(0.62, 0.8, ny));
+    if (g < 2.2) hc = mixColor(hc, hex('#6b6156'), 0.5);
     c = mixColor(c, hc, smoothstep(0.05, 0.5, m));
   }
   if (ny < 0.72 && s > 30) c = mixColor(c, hex('#7d6a58'), smoothstep(0.72, 0.5, ny));

@@ -77,9 +77,37 @@ export class Hud {
     $('ride-kmh').textContent = Math.round(info.kmh);
     $('ride-time').textContent = info.time.toFixed(1) + ' s';
     $('ride-carves').textContent = info.carves;
+    $('ride-tricks').textContent = info.tricks || 0;
     $('ride-hint').textContent = info.hint || '';
   }
-  score(v) { $('score-val').textContent = Math.round(v); }
+  score(v) {
+    const t = String(Math.round(v));
+    if (this.lastScore !== t) {
+      $('score-val').textContent = t;
+      this.lastScore = t;
+    }
+  }
+  // triks-feed: navnet på trikset og poengene spretter opp midt på skjermen
+  trick(name, pts, mult) {
+    const el = $('trick');
+    el.innerHTML = `${name}<small>+${pts} poeng${mult > 1.01 ? ` · combo ×${mult.toFixed(2)}` : ''}</small>`;
+    el.classList.remove('pop');
+    void el.offsetWidth;
+    el.classList.add('pop');
+  }
+  // dialogboks for figurene ved bålet
+  dialog(info) {
+    const el = $('dialog');
+    if (!info) {
+      el.classList.add('hidden');
+      return;
+    }
+    el.classList.remove('hidden');
+    $('dialog-name').textContent = info.name;
+    $('dialog-name').style.background = info.color || '';
+    $('dialog-text').textContent = info.text;
+    $('dialog-more').textContent = info.last ? 'Ferdig' : 'Fortsett';
+  }
   setIndicator(text) {
     const el = $('set-indicator');
     if (!text) el.classList.add('hidden');
@@ -97,7 +125,8 @@ export class Hud {
 }
 
 export class ShopUI {
-  constructor(onSelect, onClose, audio) {
+  constructor(onSelect, onClose, audio, isUnlocked = () => true) {
+    this.isUnlocked = isUnlocked;
     this.onSelect = onSelect;
     this.onClose = onClose;
     this.audio = audio;
@@ -140,7 +169,8 @@ export class ShopUI {
     const cur = this.state[this.tab];
     for (const item of list) {
       const d = document.createElement('div');
-      d.className = 'item' + (item.id === cur ? ' selected' : '');
+      const locked = !this.isUnlocked(item);
+      d.className = 'item' + (item.id === cur ? ' selected' : '') + (locked ? ' locked' : '');
       const c = this.icon(this.tab, item);
       const img = document.createElement('canvas');
       img.width = c.width;
@@ -151,7 +181,18 @@ export class ShopUI {
       n.className = 'name';
       n.textContent = item.name;
       d.appendChild(n);
+      if (locked) {
+        const l = document.createElement('div');
+        l.className = 'lock';
+        l.textContent = `🔒 ${item.unlock} poeng`;
+        d.appendChild(l);
+      }
       d.addEventListener('click', () => {
+        if (locked) {
+          this.audio.bad();
+          this.detail(item);
+          return;
+        }
         this.state[this.tab] = item.id;
         this.audio.click();
         this.onSelect(this.tab, item.id);
@@ -164,6 +205,7 @@ export class ShopUI {
   }
   detail(item) {
     let html = `<h4>${item.name}</h4><div>${item.desc || ''}</div>`;
+    if (!this.isUnlocked(item)) html += `<div class="lock-note">🔒 Lås opp med ${item.unlock} surfepoeng. Snakk med Chicken Joe ved bålet.</div>`;
     if (item.stats) {
       const bar = (label, v) => `<div class="stat"><span>${label}</span><div class="bar"><i style="width:${Math.round(v * 100)}%"></i></div></div>`;
       html += bar('Padling', item.stats.paddle) + bar('Fart', item.stats.speed) + bar('Sving', item.stats.turn);
