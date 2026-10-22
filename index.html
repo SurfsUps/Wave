@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="nb">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Korallbukta Surf</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div id="toast"></div>
+    <div id="set-indicator" class="pill hidden"><span class="wave-ico">〰</span><span id="set-text">Et sett er på vei inn</span></div>
+
+    <div id="timing" class="hidden">
+      <div id="timing-label">Bølge!</div>
+      <div id="timing-bar">
+        <div id="timing-ok"></div>
+        <div id="timing-perfect"></div>
+        <div id="timing-marker"></div>
+      </div>
+      <div id="timing-key"><kbd>E</kbd> <span id="timing-action">Duck dive</span></div>
+    </div>
+
+    <div id="interact" class="pill hidden"><kbd id="interact-key">E</kbd> <span id="interact-text">Surfebutikken</span></div>
+
+    <div id="ride" class="hidden">
+      <div id="ride-speed"><span id="ride-kmh">0</span><small>km/t</small></div>
+      <div id="ride-stats"><span id="ride-time">0.0 s</span> · <span id="ride-carves">0</span> carves</div>
+      <div id="ride-hint"></div>
+    </div>
+
+    <div id="controls"></div>
+    <div id="score" class="pill"><span>Stoke</span> <b id="score-val">0</b></div>
+  </div>
+
+  <!-- Butikk -->
+  <div id="shop" class="hidden">
+    <div class="shop-head">
+      <div>
+        <div class="shop-title">Bølgehytta</div>
+        <div class="shop-sub">Surf · Kaffe · Gode vibber</div>
+      </div>
+      <button id="shop-close" title="Lukk (Esc)">✕</button>
+    </div>
+    <div class="shop-tabs">
+      <button data-tab="outfit" class="active">Antrekk</button>
+      <button data-tab="hat">Hodeplagg</button>
+      <button data-tab="glasses">Solbriller</button>
+      <button data-tab="board">Brett</button>
+    </div>
+    <div id="shop-grid"></div>
+    <div id="shop-detail"></div>
+    <div class="shop-foot"><kbd>Esc</kbd> eller <kbd>E</kbd> for å lukke · <kbd>A</kbd>/<kbd>D</kbd> roter karakteren</div>
+  </div>
+
+  <!-- Hjelp -->
+  <div id="help" class="hidden">
+    <h2>Kontroller</h2>
+    <div class="help-cols">
+      <div>
+        <h3>På stranden</h3>
+        <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Gå</p>
+        <p><kbd>Shift</kbd> Løp</p>
+        <p><kbd>E</kbd> Snakk med butikken</p>
+        <p>Dra med musa: se rundt · hjul: zoom</p>
+      </div>
+      <div>
+        <h3>I vannet</h3>
+        <p><kbd>W</kbd> Padle frem · <kbd>S</kbd> bakover</p>
+        <p><kbd>A</kbd>/<kbd>D</kbd> Snu brettet</p>
+        <p><kbd>E</kbd> mot bølge: <b>duck dive</b></p>
+        <p><kbd>E</kbd> bølge bakfra: <b>drop in</b></p>
+      </div>
+      <div>
+        <h3>På bølgen</h3>
+        <p><kbd>A</kbd>/<kbd>D</kbd> Carve (hold for skarpere sving)</p>
+        <p><kbd>W</kbd> Pump for fart · <kbd>S</kbd> Brems</p>
+        <p>Hold deg foran curlen – nedover gir fart, opp gir høyde.</p>
+      </div>
+    </div>
+    <p class="help-foot"><kbd>H</kbd> vis/skjul hjelp · <kbd>M</kbd> lyd av/på</p>
+  </div>
+
+  <!-- Startskjerm -->
+  <div id="start">
+    <div class="start-card">
+      <div class="logo">Korallbukta<span>Surf</span></div>
+      <p>En varm bukt, en liten surfehytte og sett med perfekte bølger.</p>
+      <button id="start-btn" disabled>Klikk for å starte</button>
+      <div id="loading">Laster bukta…</div>
+      <div class="start-keys"><kbd>WASD</kbd> bevege · <kbd>E</kbd> handling · <kbd>H</kbd> hjelp</div>
+    </div>
+  </div>
+
+  <div id="error" class="hidden"></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
