@@ -1,6 +1,7 @@
 // Tredjepersonskamera som følger spilleren mykt, med egne innstillinger per modus.
 import { damp, dampAngle, clamp, lerp } from '../engine/math.js';
 import { groundHeight } from '../world/terrain.js';
+import { FIRE } from '../world/props.js';
 
 export class CameraRig {
   constructor() {
@@ -42,6 +43,26 @@ export class CameraRig {
       this.target = [damp(this.target[0], p.x - 0.9, 4, dt), damp(this.target[1], p.y + 1.0, 4, dt), damp(this.target[2], p.z, 4, dt)];
       this.yaw = Math.atan2(p.x - cx, p.z - cz);
       this.fov = damp(this.fov, 0.8, 3, dt);
+      return;
+    } else if (s === 'talk' && p.talkNpc) {
+      // samtalekamera fra siden, så både spilleren og figuren synes
+      const n = p.talkNpc;
+      const mx = (p.x + n.x) / 2, mz = (p.z + n.z) / 2;
+      // velg siden som ligger lengst unna bålet
+      const base = Math.atan2(n.x - p.x, n.z - p.z);
+      let best = null;
+      for (const off of [1.15, -1.15]) {
+        const a = base + off;
+        const x = mx - Math.sin(a) * 4.6, z = mz - Math.cos(a) * 4.6;
+        const d = Math.hypot(x - FIRE.x, z - FIRE.z);
+        if (!best || d > best[2]) best = [x, z, d];
+      }
+      const [cx, cz] = best;
+      const cy = Math.max(p.y, n.y) + 1.9;
+      this.pos = [damp(this.pos[0], cx, 3, dt), damp(this.pos[1], cy, 3, dt), damp(this.pos[2], cz, 3, dt)];
+      this.target = [damp(this.target[0], mx, 3, dt), damp(this.target[1], Math.max(p.y, n.y) + 1.0, 3, dt), damp(this.target[2], mz, 3, dt)];
+      this.yaw = Math.atan2(mx - this.pos[0], mz - this.pos[2]);
+      this.fov = damp(this.fov, 0.85, 3, dt);
       return;
     } else if (s === 'surf' || s === 'popup') {
       follow = mouseActive ? 0 : 2.6;

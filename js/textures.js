@@ -169,6 +169,63 @@ export function drawShorts(ctx, w, h, key) {
 }
 
 // Brett-mønster: lerret der toppen = nesa
+// Maiskolbe: gule korn i rader, grønne blader som pakker seg rundt kantene
+function drawCorn(ctx, w, h) {
+  const g = ctx.createLinearGradient(0, 0, w, 0);
+  g.addColorStop(0, '#3f6e1f');
+  g.addColorStop(0.5, '#6f9e2e');
+  g.addColorStop(1, '#3f6e1f');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+  const r = rnd(77);
+  // kornene
+  const cols = 7, kw = (w * 0.72) / cols, kh = kw * 0.82;
+  for (let y = h * 0.08; y < h * 0.9; y += kh) {
+    const t = (y - h * 0.08) / (h * 0.82);
+    const span = Math.sin(Math.PI * Math.min(1, t * 1.05 + 0.04));
+    for (let i = 0; i < cols; i++) {
+      const cx = w * 0.5 + (i - (cols - 1) / 2) * kw * span;
+      const tone = 0.85 + r() * 0.3;
+      ctx.fillStyle = `rgb(${Math.round(242 * tone)},${Math.round(190 * tone)},${Math.round(48 * tone)})`;
+      ctx.strokeStyle = 'rgba(170,110,20,0.65)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(cx - kw * span * 0.45, y + 1, kw * span * 0.9, kh - 2, 4);
+      else ctx.rect(cx - kw * span * 0.45, y + 1, kw * span * 0.9, kh - 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,245,180,0.45)';
+      ctx.fillRect(cx - kw * span * 0.25, y + 3, kw * span * 0.25, kh * 0.3);
+    }
+  }
+  // blader som bretter seg inn fra kantene og dekker toppen
+  ctx.fillStyle = 'rgba(78,128,34,0.92)';
+  for (const side of [0, 1]) {
+    ctx.beginPath();
+    const x0 = side ? w : 0, dir = side ? -1 : 1;
+    ctx.moveTo(x0, 0);
+    ctx.lineTo(x0, h);
+    ctx.bezierCurveTo(x0 + dir * w * 0.12, h * 0.75, x0 + dir * w * 0.26, h * 0.45, x0 + dir * w * 0.2, h * 0.12);
+    ctx.lineTo(x0 + dir * w * 0.5, 0);
+    ctx.closePath();
+    ctx.fill();
+  }
+  const top = ctx.createLinearGradient(0, h, 0, h * 0.62);
+  top.addColorStop(0, 'rgba(70,120,30,0.95)');
+  top.addColorStop(1, 'rgba(70,120,30,0)');
+  ctx.fillStyle = top;
+  ctx.fillRect(0, h * 0.62, w, h * 0.38);
+  ctx.strokeStyle = 'rgba(40,70,15,0.5)';
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 6; i++) {
+    ctx.beginPath();
+    const x = w * (0.08 + i * 0.17);
+    ctx.moveTo(x, h);
+    ctx.quadraticCurveTo(x + (i - 2.5) * 4, h * 0.8, w * 0.5 + (i - 2.5) * 6, h * 0.58);
+    ctx.stroke();
+  }
+}
+
 export function drawBoardTop(ctx, w, h, def) {
   ctx.save();
   const p = def.paint;
@@ -178,6 +235,7 @@ export function drawBoardTop(ctx, w, h, def) {
     ctx.fillStyle = g;
   } else ctx.fillStyle = p.base;
   ctx.fillRect(0, 0, w, h);
+  if (p.corn) drawCorn(ctx, w, h);
   if (p.wood) {
     for (let i = 0; i < 40; i++) {
       ctx.strokeStyle = i % 3 ? 'rgba(90,50,20,0.18)' : 'rgba(255,230,190,0.15)';

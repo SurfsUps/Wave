@@ -348,3 +348,78 @@ kbd {
   #timing { width: 280px; }
   .help-cols { grid-template-columns: 1fr; }
 }
+
+/* Låste varer i butikken */
+.item { position: relative; }
+.item.locked { cursor: not-allowed; }
+.item.locked canvas { filter: grayscale(0.85) brightness(0.8); }
+.item .lock {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(24, 50, 58, 0.82);
+  color: #fff6d6;
+  font-weight: 800;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 9px;
+  white-space: nowrap;
+}
+.lock-note { margin-top: 6px; font-weight: 800; color: var(--deep); }
+
+/* Triks-feed */
+#trick {
+  position: absolute;
+  top: 34%;
+  left: 50%;
+  transform: translate(-50%, 0) scale(0.6);
+  font-family: 'Baloo 2', 'Nunito', sans-serif;
+  font-size: 40px;
+  font-weight: 800;
+  color: #ffe36e;
+  text-align: center;
+  white-space: nowrap;
+  text-shadow: 0 3px 0 rgba(180, 70, 20, 0.7), 0 8px 24px rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  pointer-events: none;
+}
+#trick small { display: block; font-family: 'Nunito', sans-serif; font-size: 18px; color: #fff; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); }
+#trick.pop { animation: trickpop 1.7s ease-out forwards; }
+@keyframes trickpop {
+  0% { opacity: 0; transform: translate(-50%, 10px) scale(0.6); }
+  12% { opacity: 1; transform: translate(-50%, 0) scale(1.08); }
+  22% { transform: translate(-50%, 0) scale(1); }
+  75% { opacity: 1; transform: translate(-50%, -14px) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -30px) scale(0.95); }
+}
+
+/* Dialog med figurene ved bålet */
+#dialog {
+  position: absolute;
+  left: 50%;
+  bottom: 30px;
+  transform: translateX(-50%);
+  width: min(560px, calc(100vw - 32px));
+  padding: 26px 22px 14px;
+  border-radius: 20px;
+  background: linear-gradient(180deg, #fffaf0 0%, #fbeed6 100%);
+  box-shadow: 0 12px 40px rgba(10, 40, 50, 0.3);
+  animation: dialogin 0.25s ease-out;
+}
+#dialog-name {
+  position: absolute;
+  top: -16px;
+  left: 20px;
+  padding: 4px 14px;
+  border-radius: 12px;
+  background: var(--coral);
+  color: #fff;
+  font-family: 'Baloo 2', sans-serif;
+  font-weight: 800;
+  font-size: 18px;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.2);
+}
+#dialog-text { font-size: 18px; font-weight: 700; line-height: 1.35; color: var(--ink); min-height: 2.6em; }
+#dialog-foot { margin-top: 8px; text-align: right; font-size: 13px; font-weight: 800; color: var(--ink-soft); }
+@keyframes dialogin { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }

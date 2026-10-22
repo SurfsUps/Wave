@@ -233,24 +233,38 @@ export const Poses = {
     setOffset(p, 0, -0.005 + b * 0.3, 0);
     return p;
   },
-  // fase i radianer, fart 0..1 (gå→løp)
+  // fase i radianer, fart 0..1 (gå→løp). Sving-fasen bøyer kneet, hælen treffer først,
+  // armene pendler motsatt av beina, og hoftene vugger over standbeinet.
   walk(p, ph, run) {
     p.fill(0);
-    const a = 0.5 + run * 0.35;
+    const a = 0.5 + run * 0.32;
     const s = Math.sin(ph), c = Math.cos(ph);
-    setJ(p, 'hipL', -s * a, 0, 0.03);
-    setJ(p, 'hipR', s * a, 0, -0.03);
-    setJ(p, 'knL', Math.max(0, c) * (0.6 + run * 0.7) + 0.08, 0, 0);
-    setJ(p, 'knR', Math.max(0, -c) * (0.6 + run * 0.7) + 0.08, 0, 0);
-    setJ(p, 'ftL', -0.1 + s * 0.25, 0, 0);
-    setJ(p, 'ftR', -0.1 - s * 0.25, 0, 0);
-    setJ(p, 'shL', s * a * 0.8, 0, 0.1);
-    setJ(p, 'shR', -s * a * 0.8, 0, -0.1);
-    setJ(p, 'elL', -0.25 - run * 0.9, 0, 0);
-    setJ(p, 'elR', -0.25 - run * 0.9, 0, 0);
-    setJ(p, 'torso', 0.06 + run * 0.18, s * 0.12, 0);
-    setJ(p, 'neck', -0.04 - run * 0.12, -s * 0.08, 0);
-    setOffset(p, 0, -Math.abs(c) * (0.04 + run * 0.05) + 0.01, 0);
+    const sL = Math.max(0, c), sR = Math.max(0, -c); // sving-fase for hvert bein
+    // hofte: negativ x = beinet frem
+    setJ(p, 'hipL', -s * a - run * 0.12, 0, 0.035);
+    setJ(p, 'hipR', s * a - run * 0.12, 0, -0.035);
+    // kne: stor bøy midt i svingen, litt bøy når hælen lander og tar vekten
+    const loadL = Math.max(0, s) * Math.max(0, -c), loadR = Math.max(0, -s) * Math.max(0, c);
+    setJ(p, 'knL', Math.pow(sL, 1.4) * (0.75 + run * 0.85) + loadL * (0.22 + run * 0.3) + 0.05, 0, 0);
+    setJ(p, 'knR', Math.pow(sR, 1.4) * (0.75 + run * 0.85) + loadR * (0.22 + run * 0.3) + 0.05, 0, 0);
+    // ankel: tærne opp ved hælisett, avsparket strekker foten
+    setJ(p, 'ftL', -0.22 * s + Math.max(0, -s) * sR * 0.25 - sL * 0.15, 0, 0);
+    setJ(p, 'ftR', 0.22 * s + Math.max(0, s) * sL * 0.25 - sR * 0.15, 0, 0);
+    // armer: motsatt av beina, albuen bøyes mer når armen svinger frem
+    const arm = 0.32 + run * 0.5;
+    const aL = s * arm, aR = -s * arm;
+    setJ(p, 'shL', aL, 0, 0.09 + run * 0.06);
+    setJ(p, 'shR', aR, 0, -0.09 - run * 0.06);
+    setJ(p, 'elL', -0.22 - Math.max(0, -aL) * 0.6 - run * 1.0, 0, 0);
+    setJ(p, 'elR', -0.22 - Math.max(0, -aR) * 0.6 - run * 1.0, 0, 0);
+    // bekkenet roterer med beinet, overkroppen motroterer, og hodet holdes stødig
+    setJ(p, 'hips', 0, -s * (0.1 + run * 0.06), c * 0.045);
+    setJ(p, 'torso', 0.05 + run * 0.2, s * (0.16 + run * 0.06), -c * 0.035);
+    setJ(p, 'neck', -0.04 - run * 0.14, -s * 0.06, c * 0.02);
+    // kroppen er høyest når beina passerer hverandre (gange), lavest i landingen (løp)
+    const bobWalk = 0.012 - s * s * 0.035;
+    const bobRun = 0.03 - c * c * 0.07;
+    setOffset(p, -c * 0.022 * (1 - run), bobWalk + (bobRun - bobWalk) * run, 0);
     return p;
   },
   // bærer brettet under høyre arm
@@ -281,24 +295,97 @@ export const Poses = {
     setJ(p, 'ftR', 0.6, 0, 0);
     return p;
   },
-  // stående på brettet, sidelengs (regular: venstre fot frem)
-  stance(p, lean, crouch, t, pump = 0) {
+  // stående på brettet, sidelengs (regular: venstre fot frem). Venstre arm leder mot nesa,
+  // høyre arm balanserer bak. o: { turn, wob, trick, trickK } for armbevegelser og triks.
+  stance(p, lean, crouch, t, pump = 0, o = {}) {
     p.fill(0);
-    const c = 0.25 + crouch * 0.55 + pump * 0.25 * Math.sin(t * 7);
+    const pumpW = pump * Math.sin(t * 7);
+    const c = 0.25 + crouch * 0.55 + pump * 0.25 * pumpW;
+    const toe = Math.max(0, lean), heel = Math.max(0, -lean);
+    const wob = Math.min(1, Math.abs(o.wob || 0));
     // bena sprikes langs karakterens x-akse (mot nese/hale)
-    setJ(p, 'hipL', -c * 0.55, 0, 0.42);
-    setJ(p, 'hipR', -c * 0.55, 0, -0.42);
-    setJ(p, 'knL', c * 1.05, 0, 0);
-    setJ(p, 'knR', c * 1.05, 0, 0);
+    setJ(p, 'hipL', -c * 0.55 - heel * 0.15, 0, 0.42);
+    setJ(p, 'hipR', -c * 0.55 - heel * 0.15, 0, -0.42);
+    setJ(p, 'knL', c * 1.05 + toe * 0.15, 0, 0);
+    setJ(p, 'knR', c * 1.05 + toe * 0.25, 0, 0);
     setJ(p, 'ftL', -c * 0.5, -0.1, -0.42);
     setJ(p, 'ftR', -c * 0.5, 0.1, 0.42);
-    setJ(p, 'torso', 0.18 + c * 0.35 + lean * 0.12, 0.35 + lean * 0.25, lean * 0.15);
-    setJ(p, 'neck', -0.2 - c * 0.2, 0.55 + lean * 0.2, 0);
-    setJ(p, 'shL', -0.6 - lean * 0.3, 0.2, 1.05 + Math.sin(t * 1.3) * 0.05);
-    setJ(p, 'shR', -0.4 + lean * 0.3, -0.2, -1.0 - Math.sin(t * 1.1) * 0.05);
-    setJ(p, 'elL', -0.45, 0, 0);
-    setJ(p, 'elR', -0.6, 0, 0);
-    setOffset(p, 0, -c * 0.32, 0);
+    // overkroppen bøyer seg inn i svingen og skuldrene roterer dit man skal
+    setJ(p, 'torso', 0.16 + c * 0.32 + toe * 0.42 - heel * 0.12, 0.32 + lean * 0.38, lean * 0.12);
+    setJ(p, 'neck', -0.2 - c * 0.2 - toe * 0.25 + heel * 0.08, 0.55 + lean * 0.22, 0);
+    // små balansebevegelser: armene er aldri helt stille
+    const b1 = Math.sin(t * 1.9) * 0.07 + Math.sin(t * 3.3 + 1) * 0.04;
+    const b2 = Math.sin(t * 2.3 + 2) * 0.07 + Math.sin(t * 3.7) * 0.04;
+    // ledende arm (venstre): ut mot nesa, ned mot vannet på toeside, frem på heelside
+    let lx = -0.35 - toe * 0.75 - heel * 0.55 + b1 * 0.5;
+    let lz = 0.95 - crouch * 0.18 - toe * 0.35 + heel * 0.1 + b1 + wob * 0.35 - pumpW * 0.18;
+    // bakre arm (høyre): balanserer, løftes bak på toeside, krysser frem på heelside
+    let rx = -0.12 + toe * 0.45 - heel * 0.85 + b2 * 0.5;
+    let rz = -0.72 + crouch * 0.1 - toe * 0.4 + heel * 0.38 - b2 - wob * 0.4 + pumpW * 0.18;
+    setJ(p, 'shL', lx, 0.15, lz);
+    setJ(p, 'shR', rx, -0.15, rz);
+    setJ(p, 'elL', -0.4 - heel * 0.35 - wob * 0.2, 0, 0);
+    setJ(p, 'elR', -0.55 - heel * 0.45 + toe * 0.25, 0, 0);
+    setOffset(p, 0, -c * 0.32 - toe * 0.04, 0);
+    const tr = o.trick, k = o.trickK || 0;
+    if (tr && k > 0) Poses.trick(p, tr, k, t);
+    return p;
+  },
+  // triks-poser blandet inn over stance (k: 0..1)
+  trick(p, tr, k, t) {
+    const q = newPose();
+    q.set(p);
+    if (tr === 'air' || tr === 'grab') {
+      // knærne trekkes opp i lufta
+      setJ(q, 'hipL', -1.25, 0, 0.42);
+      setJ(q, 'hipR', -1.25, 0, -0.42);
+      setJ(q, 'knL', 1.9, 0, 0);
+      setJ(q, 'knR', 1.9, 0, 0);
+      setJ(q, 'ftL', -0.5, -0.1, -0.42);
+      setJ(q, 'ftR', -0.5, 0.1, 0.42);
+      setJ(q, 'torso', 0.55, 0.3, 0);
+      setJ(q, 'neck', -0.4, 0.6, 0);
+      setOffset(q, 0, -0.38, 0);
+      if (tr === 'grab') {
+        // bakre hånd griper railen foran tærne, ledende arm strekkes stilig opp
+        setJ(q, 'shR', -1.15, 0, -0.1);
+        setJ(q, 'elR', -0.15, 0, 0);
+        setJ(q, 'shL', -0.2, 0.2, 2.1 + Math.sin(t * 6) * 0.08);
+        setJ(q, 'elL', -0.2, 0, 0);
+      } else {
+        setJ(q, 'shL', -0.5, 0.15, 1.35);
+        setJ(q, 'shR', -0.3, -0.15, -1.3);
+        setJ(q, 'elL', -0.5, 0, 0);
+        setJ(q, 'elR', -0.5, 0, 0);
+      }
+    } else if (tr === 'hang') {
+      // hang ten: føttene samlet på nesa, svai i ryggen og armene bak
+      setJ(q, 'hipL', -0.05, 0, 0.06);
+      setJ(q, 'hipR', -0.05, 0, -0.06);
+      setJ(q, 'knL', 0.25, 0, 0);
+      setJ(q, 'knR', 0.25, 0, 0);
+      setJ(q, 'ftL', -0.1, 0, 0);
+      setJ(q, 'ftR', -0.1, 0, 0);
+      setJ(q, 'hips', 0, 1.45, 0);
+      setJ(q, 'torso', -0.18, 0, 0);
+      setJ(q, 'neck', 0.12, Math.sin(t * 0.9) * 0.15, 0);
+      setJ(q, 'shL', 0.55, 0, 0.45 + Math.sin(t * 2.1) * 0.05);
+      setJ(q, 'shR', 0.55, 0, -0.45 - Math.sin(t * 2.4) * 0.05);
+      setJ(q, 'elL', -0.15, 0, 0);
+      setJ(q, 'elR', -0.15, 0, 0);
+      setOffset(q, 0, -0.08, 0);
+    } else if (tr === 'snap') {
+      // eksplosiv vridning: armene kastes rundt
+      setJ(q, 'torso', 0.55, -0.35, 0);
+      setJ(q, 'shL', -1.3, 0.3, 0.6);
+      setJ(q, 'shR', 0.6, -0.2, -1.4);
+      setJ(q, 'elL', -0.3, 0, 0);
+      setJ(q, 'elR', -0.3, 0, 0);
+      setJ(q, 'knL', 1.2, 0, 0);
+      setJ(q, 'knR', 1.5, 0, 0);
+      setOffset(q, 0, -0.35, 0);
+    }
+    blendPose(p, p, q, k);
     return p;
   },
   duck(p, k) {

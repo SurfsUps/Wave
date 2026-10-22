@@ -10,7 +10,7 @@ export const WAVE_GLSL = /* glsl */ `
 #define KC 0.0012
 uniform vec4 uA[MAXW]; // zc, Hbase, peak, steep
 uniform vec4 uB[MAXW]; // wL, wR, started, bore
-uniform vec4 uC[MAXW]; // lip, aktiv, 0, 0
+uniform vec4 uC[MAXW]; // lip, aktiv, sidebredde, 0
 uniform float uWaveTime;
 
 float swellH(vec2 p, float t) {
@@ -24,7 +24,8 @@ void waveEval(int i, vec2 p, float depth, out float h, out float b, out float d,
   vec4 A = uA[i];
   vec4 B = uB[i];
   float u = p.x - A.z;
-  float lat = 0.55 + 0.45 * exp(-(u / 40.0) * (u / 40.0));
+  float lw = uC[i].z;
+  float lat = 0.55 + 0.45 * exp(-(u / lw) * (u / lw));
   float edge = smoothstep(140.0, 100.0, abs(p.x));
   H = A.y * lat * edge * smoothstep(0.0, 2.2, depth);
   float crest = A.x - KC * p.x * p.x;
@@ -70,10 +71,11 @@ export class WaveSystem {
     this.uB = new Float32Array(MAXW * 4);
     this.uC = new Float32Array(MAXW * 4);
     this.idc = 0;
+    this.bombChance = 0.3;
     this.setAnnounce = 0;
     // forhåndsfyll så det er liv i bukta fra start
     this.spawn(-70, 2.0, true);
-    this.spawn(-150, 2.3, true);
+    this.spawn(-150, 3.4, true);
     this.spawn(-225, 2.1, true);
     this.setLeft = 1;
     this.nextSpawn = 10;
@@ -87,21 +89,35 @@ export class WaveSystem {
   spawn(zc = -235, H0 = null, big = true) {
     const r = this.rnd;
     if (this.waves.length >= MAXW) return null;
+    // Bølgetype: en topp som deler seg (A-ramme), eller en som bare peeler én vei.
+    // dir = 0: begge veier, -1: bare mot -x, +1: bare mot +x
+    const roll = r();
+    const dir = roll < 0.36 ? 0 : roll < 0.68 ? 1 : -1;
+    // Av og til kommer en ekstra stor bølge (bomb)
+    const bomb = big && H0 == null && r() < this.bombChance;
+    let peak;
+    if (dir === 0) peak = (r() - 0.5) * 70;
+    else peak = -dir * (22 + r() * 40); // starter på den ene siden og peeler over bukta
+    const fast = 8 + r() * 2.5, slow = 5.2 + r() * 1.6;
     const leftFast = r() < 0.5;
     const w = {
       id: ++this.idc,
       zc,
-      H0: H0 ?? (big ? 1.8 + r() * 0.8 : 0.95 + r() * 0.35),
-      peak: (r() - 0.5) * 56,
-      breakZ: big ? -56 + (r() - 0.5) * 12 : -34 + (r() - 0.5) * 6,
+      H0: H0 ?? (bomb ? 3.3 + r() * 1.1 : big ? 1.9 + r() * 1.1 : 0.95 + r() * 0.35),
+      peak,
+      dir,
+      latW: dir === 0 ? 34 + r() * 14 : 55 + r() * 20,
+      breakZ: bomb ? -70 + (r() - 0.5) * 8 : big ? -56 + (r() - 0.5) * 12 : -34 + (r() - 0.5) * 6,
       closeZ: -14,
-      peelL: leftFast ? 8 + r() * 2.5 : 5.2 + r() * 1.6,
-      peelR: leftFast ? 5.2 + r() * 1.6 : 8 + r() * 2.5,
+      peelL: dir === 1 ? 0 : dir === -1 ? fast * 0.9 : leftFast ? fast : slow,
+      peelR: dir === -1 ? 0 : dir === 1 ? fast * 0.9 : leftFast ? slow : fast,
       wL: 0, wR: 0,
       started: false, breakT: 0,
       c: 8, steep: 0, Hbase: 0, bore: 0.6, lip: 0,
       big,
+      bomb,
     };
+    if (bomb) this.emit('bomb', w);
     this.update1(w, 0);
     this.waves.push(w);
     return w;
@@ -123,8 +139,9 @@ export class WaveSystem {
       const closing = w.zc > w.closeZ;
       const ramp = smoothstep(0, 0.8, w.breakT) * 0.7 + 0.3;
       const mult = (closing ? 3.5 : 1) * ramp;
-      w.wL += w.peelL * mult * dt;
-      w.wR += w.peelR * mult * dt;
+      // siden som ikke peeler lukker seg først helt inne ved land
+      w.wL += (w.peelL || (closing ? 2.6 : 0)) * mult * dt;
+      w.wR += (w.peelR || (closing ? 2.6 : 0)) * mult * dt;
       w.bore = 0.62 * Math.exp(-w.breakT * 0.03);
       w.lip = 1;
     } else {
@@ -144,6 +161,8 @@ export class WaveSystem {
         this.emit('set', null);
       }
       const big = this.setLeft > 0;
+      // den siste store bølgen i settet har større sjanse for å være en bomb
+      this.bombChance = this.setLeft === 1 ? 0.45 : 0.2;
       this.spawn(-235, null, big);
       this.setLeft--;
       if (this.setLeft > 0) this.nextSpawn = 9.5 + r() * 2.5;
@@ -167,7 +186,7 @@ export class WaveSystem {
     this.waves.forEach((w, i) => {
       this.uA.set([w.zc, w.Hbase, w.peak, w.steep], i * 4);
       this.uB.set([w.wL, w.wR, w.started ? 1 : 0, w.bore], i * 4);
-      this.uC.set([w.lip, 1, 0, 0], i * 4);
+      this.uC.set([w.lip, 1, w.latW, 0], i * 4);
     });
   }
   swell(x, z, t = this.time) {
@@ -177,7 +196,7 @@ export class WaveSystem {
   // Detaljert evaluering av én bølge i et punkt (speiler GLSL)
   eval(w, x, z, depth = this.depthAt(x, z)) {
     const u = x - w.peak;
-    const lat = 0.55 + 0.45 * Math.exp(-(u / 40) * (u / 40));
+    const lat = 0.55 + 0.45 * Math.exp(-(u / w.latW) * (u / w.latW));
     const edge = smoothstep(140, 100, Math.abs(x));
     const H = w.Hbase * lat * edge * smoothstep(0, 2.2, depth);
     const d = z - this.crestZ(w, x);
@@ -221,9 +240,11 @@ export class WaveSystem {
       const u = x - w.peak;
       return u < 0 ? -u - w.peelL * tt * 0.8 : u - w.peelR * tt * 0.8;
     }
-    const mult = w.zc + w.c * t > w.closeZ ? 2.5 : 1;
+    const closing = w.zc + w.c * t > w.closeZ;
+    const mult = closing ? 2.5 : 1;
+    const pl = w.peelL || (closing ? 2.6 : 0), pr = w.peelR || (closing ? 2.6 : 0);
     const u = x - w.peak;
-    return u < 0 ? -u - (w.wL + w.peelL * t * mult) : u - (w.wR + w.peelR * t * mult);
+    return u < 0 ? -u - (w.wL + pl * t * mult) : u - (w.wR + pr * t * mult);
   }
   nextSetIn() { return this.setLeft > 0 ? 0 : this.nextSpawn; }
 }

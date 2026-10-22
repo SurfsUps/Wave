@@ -107,7 +107,7 @@ export class Player {
   }
   updateRigY() {
     const W = this.w.waves;
-    if (this.state === 'walk' || this.state === 'shop') this.rigY = Math.max(groundHeight(this.x, this.z), -5);
+    if (this.state === 'walk' || this.state === 'shop' || this.state === 'talk') this.rigY = Math.max(groundHeight(this.x, this.z), -5);
     else this.rigY = W.height(this.x, this.z) + (this.state === 'surf' || this.state === 'popup' ? 0.22 : 0.04);
   }
   collide(nx, nz) {
@@ -147,6 +147,7 @@ export class Player {
     const s = this.state;
     if (s === 'walk') this.updateWalk(dt, input, cam);
     else if (s === 'shop') this.updateShop(dt, input);
+    else if (s === 'talk') this.updateTalk(dt, input);
     else if (s === 'paddle') this.updatePaddle(dt, input);
     else if (s === 'duck') this.updateDuck(dt, input);
     else if (s === 'washed') this.updateWashed(dt, input);
@@ -167,7 +168,7 @@ export class Player {
     let target = 0;
     if (ml > 0.01) {
       mx /= ml; mz /= ml;
-      target = (input.run ? 7.2 : 4.0) * (1 - wading * 0.45);
+      target = (input.run ? 6.8 : 3.3) * (1 - wading * 0.45);
       this.yaw = dampAngle(this.yaw, Math.atan2(mx, mz), 10, dt);
     }
     const tvx = mx * target, tvz = mz * target;
@@ -195,10 +196,12 @@ export class Player {
       return;
     }
     // animasjon
-    const run = clamp((this.speed - 4) / 3, 0, 1);
+    const run = clamp((this.speed - 3.6) / 2.8, 0, 1);
     if (this.speed > 0.3) {
       const prev = this.walkPh;
-      this.walkPh += dt * (this.speed * 1.75 + 1.5);
+      // fasen følger tilbakelagt distanse, så føttene ikke sklir
+      const stepLen = lerp(0.95, 1.7, run);
+      this.walkPh += dt * Math.max(2.5, (this.speed * Math.PI) / stepLen);
       if (Math.floor(prev / Math.PI) !== Math.floor(this.walkPh / Math.PI)) {
         if (wading > 0.1) {
           this.w.effects.splash(this.x, Math.max(0, groundHeight(this.x, this.z)), this.z, 4, 0.5, 0.6);
@@ -224,7 +227,38 @@ export class Player {
     if (dShop < 3.2) {
       this.prompt = { kind: 'shop' };
       if (input.hit('KeyE')) this.openShop();
+      return;
     }
+    // snakk med figurene ved bålet
+    for (const n of this.w.npcs || []) {
+      if (Math.hypot(this.x - n.x, this.z - n.z) < 2.6 + (n.seatY ? 0.4 : 0)) {
+        this.prompt = { kind: 'talk', npc: n };
+        if (input.hit('KeyE')) this.startTalk(n);
+        return;
+      }
+    }
+  }
+  startTalk(n) {
+    this.setState('talk');
+    this.talkNpc = n;
+    this.vx = this.vz = 0;
+    this.w.onTalk(n);
+  }
+  endTalk() {
+    if (this.state === 'talk') this.setState('walk');
+    this.talkNpc = null;
+  }
+  updateTalk(dt, input) {
+    const n = this.talkNpc;
+    if (n) this.yaw = dampAngle(this.yaw, Math.atan2(n.x - this.x, n.z - this.z), 6, dt);
+    Poses.idle(this.targetPose, this.stateT);
+    // litt gestikulering mens man prater
+    addJ(this.targetPose, 'shL', -0.25 - Math.max(0, Math.sin(this.stateT * 2.2)) * 0.35, 0, 0.1);
+    setJ(this.targetPose, 'elL', -0.9, 0, 0);
+    Poses.carry(this.targetPose);
+    this.setLocals([-0.36, 1.02, 0.06, -0.12, 0, -Math.PI / 2], [0, 0, 0, 0, 0, 0]);
+    if (input.hit('KeyE', 'Space', 'Enter')) this.w.onTalkNext();
+    else if (input.hit('Escape')) this.w.onTalkEnd();
   }
   openShop() {
     this.setState('shop');
@@ -428,7 +462,7 @@ export class Player {
       this.w.effects.splash(this.x, W.height(this.x, this.z), this.z, 10, 0.6);
       if (D.good && D.under) {
         const perfect = D.quality === 'perfekt';
-        this.w.hud.toast(perfect ? 'Perfekt duck dive!' : 'Duck dive!', perfect ? '+25 stoke' : '+10 stoke', 'good', 1.3);
+        this.w.hud.toast(perfect ? 'Perfekt duck dive!' : 'Duck dive!', perfect ? '+25 poeng' : '+10 poeng', 'good', 1.3);
         this.score += perfect ? 25 : 10;
         if (perfect) {
           this.vx += fx * 1.2;
@@ -506,6 +540,18 @@ export class Player {
     S.lean = 0;
     S.pocketT = 0;
     S.perfect = perfect;
+    S.tricks = 0;
+    S.trickPts = 0;
+    S.air = null;
+    S.snap = null;
+    S.hangK = 0;
+    S.hangT = 0;
+    S.trick = null;
+    S.trickK = 0;
+    S.trickCd = 0;
+    S.spinRest = 0;
+    S.wob = 0;
+    S.lastYawRate = 0;
     this.yawRate = 0;
     const mem = this.waveMem.get(w.id);
     if (mem) mem.hit = true;
@@ -520,6 +566,7 @@ export class Player {
     const S = this.surf;
     const w = S.w;
     if (!w || !W.waves.includes(w)) return this.endRide('Bølgen døde ut', 'paddle');
+    if (S.air) return this.updateAir(dt, input);
     const popup = this.state === 'popup';
     if (popup && this.stateT > 0.36) this.setState('surf');
     const turnStat = this.stat('turn'), speedStat = this.stat('speed');
@@ -528,22 +575,84 @@ export class Player {
     const eA = W.eval(w, S.x, cz + S.d - 0.4), eB = W.eval(w, S.x, cz + S.d + 0.4);
     const slope = (eA.h - eB.h) / 0.8; // positiv på fronten
     const face = clamp(slope / 0.45, 0, 1.4);
-    const cosY = Math.cos(this.yaw), sinY = Math.sin(this.yaw);
+    let cosY = Math.cos(this.yaw), sinY = Math.sin(this.yaw);
     const inside = ev.inside;
     const pocket = w.started ? Math.exp(-Math.pow((inside - 3.5) / 5, 2)) : 0.4 * smoothstep(0.7, 1, w.steep);
-    // styring – myk respons, mindre styring under pop-up
-    const ctrl = popup ? 0.55 : 1;
+    S.trickCd -= dt;
+    S.spinRest = damp(S.spinRest, 0, 7, dt);
+    // ---- triks ----
+    if (!popup) {
+      // hang ten: hold Q mens du kjører rolig
+      const wantHang = input.is('KeyQ') && !S.snap && S.s > 3.5;
+      S.hangK = damp(S.hangK, wantHang ? 1 : 0, wantHang ? 2.6 : 5, dt);
+      if (wantHang && S.hangK > 0.85) {
+        S.hangT += dt;
+        if (Math.abs(this.yawRate) > 1.1) {
+          this.awardHang();
+          S.hangK = 0.4;
+          this.w.hud.toast('Mistet balansen på nesa', 'Hang ten krever rolige svinger', 'bad', 1.2);
+        }
+      } else if (!wantHang && S.hangT > 0) this.awardHang();
+      // snap på leppa
+      if (input.hit('KeyF') && !S.snap && S.trickCd <= 0) {
+        if (S.s > 5.5 && S.d < ev.Lf * 0.9 && cosY < 0.35 && face > 0.15) {
+          const target = Math.atan2(sinY, Math.abs(cosY) + 0.35);
+          S.snap = { t: 0, dur: 0.34, from: this.yaw, delta: wrapAngle(target - this.yaw) };
+          S.s *= 0.9;
+          S.trickCd = 0.4;
+          const pts = 90 + S.s * 6 + pocket * 60;
+          this.award(pocket > 0.6 ? 'Snap i lommen!' : 'Snap!', pts);
+          this.w.effects.splash(this.x, W.height(this.x, this.z) + 0.4, this.z, 34, 1.3, 1.1);
+        } else if (this.messageCooldown <= 0) {
+          this.w.hud.toast('Snap: kjør opp mot leppa først', 'Trenger fart og høyde på bølgen', 'bad', 1.2);
+          this.messageCooldown = 1;
+        }
+      }
+      // hopp (air)
+      if (input.hit('Space') && !S.snap && S.trickCd <= 0) {
+        if (S.s > 6.5 && face > 0.2 && S.d < ev.Lf * 1.05 && cosY < 0.45) {
+          if (S.hangT > 0) this.awardHang();
+          S.hangK = 0;
+          S.air = { t: 0, h: 0, vy: 2.6 + S.s * 0.2 + Math.max(0, -cosY) * 2.4 + face * 0.6, spin: 0, spinV: 0, grabT: 0, maxH: 0 };
+          this.yawRate = 0;
+          this.w.audio.splash(0.7);
+          this.w.effects.splash(this.x, W.height(this.x, this.z) + 0.3, this.z, 26, 1.1, 1.2);
+          return;
+        } else if (this.messageCooldown <= 0) {
+          this.w.hud.toast('Trenger mer fart for å hoppe', 'Kjør fort opp mot toppen av bølgen og trykk Space', 'bad', 1.4);
+          this.messageCooldown = 1;
+        }
+      }
+    }
+    // styring – myk respons, mindre styring under pop-up og hang ten
+    const ctrl = (popup ? 0.55 : 1) * (1 - S.hangK * 0.6);
     const maxYaw = (1.35 + 0.95 * turnStat) * (1 - 0.22 * clamp(S.s / 15, 0, 1));
     const resp = 2.6 + 2.2 * turnStat;
-    this.yawRate = damp(this.yawRate, input.turn * maxYaw * ctrl, resp, dt);
-    this.yaw = wrapAngle(this.yaw + this.yawRate * dt);
+    if (S.snap) {
+      const SN = S.snap;
+      SN.t += dt;
+      const k = clamp(SN.t / SN.dur, 0, 1);
+      const prevYaw = this.yaw;
+      this.yaw = wrapAngle(SN.from + SN.delta * ease(k));
+      this.yawRate = wrapAngle(this.yaw - prevYaw) / Math.max(dt, 1e-4);
+      if (k >= 1) S.snap = null;
+    } else {
+      this.yawRate = damp(this.yawRate, input.turn * maxYaw * ctrl, resp, dt);
+      this.yaw = wrapAngle(this.yaw + this.yawRate * dt);
+    }
+    cosY = Math.cos(this.yaw);
+    sinY = Math.sin(this.yaw);
+    S.wob = damp(S.wob, (this.yawRate - S.lastYawRate) / Math.max(dt, 1e-4) * 0.12, 6, dt);
+    S.lastYawRate = this.yawRate;
     // krefter
     const aG = 9.8 * 0.9 * slope * cosY;
     let aD = 1.85 * Math.min(face, 1) + 2.4 * pocket * Math.min(face, 1.2);
     let aDrag = 0.3 + 0.0105 * S.s * S.s;
-    const aTurn = 0.08 * this.yawRate * this.yawRate * S.s;
+    const aTurn = S.snap ? 0 : 0.08 * this.yawRate * this.yawRate * S.s;
     if (input.fwd > 0 && face > 0.2) aD += 1.2 * clamp(1 - S.s / 16, 0, 1);
     if (input.fwd < 0) aDrag += 2.8;
+    // på nesa går brettet litt fortere (trim), men det er vanskeligere å svinge
+    aD += S.hangK * 0.6 * face;
     // ute på flaten foran bølgen tar bølgen deg raskt igjen
     const offFace = smoothstep(ev.Lf * 1.4, ev.Lf * 2.6, S.d);
     aDrag += offFace * 1.5;
@@ -556,7 +665,7 @@ export class Player {
     S.time += dt;
     S.top = Math.max(S.top, S.s);
     // carves
-    if (!popup && Math.abs(this.yawRate) > 0.75 && S.s > 6) {
+    if (!popup && !S.snap && Math.abs(this.yawRate) > 0.75 && S.s > 6) {
       const sg = Math.sign(this.yawRate);
       if (S.lastSign !== 0 && sg !== S.lastSign) {
         S.carves++;
@@ -579,14 +688,16 @@ export class Player {
     if (carve > 3.5 && !popup) {
       const side = this.yawRate > 0 ? -1 : 1; // spruten går ut på yttersiden
       const ox = Math.cos(this.yaw) * side, oz = -Math.sin(this.yaw) * side;
-      this.w.effects.railSpray(this.x - sinY * 0.6, yH, this.z - cosY * 0.6, ox, oz, clamp(carve / 9, 0.3, 1.6));
+      this.w.effects.railSpray(this.x - sinY * 0.6, yH, this.z - cosY * 0.6, ox, oz, clamp(carve / 9, 0.3, S.snap ? 2.4 : 1.6));
     }
     if (Math.random() < dt * 30) this.w.effects.wake(this.x - sinY * this.board.L * 0.45, yH, this.z - cosY * this.board.L * 0.45);
     // pose
     const lean = clamp(-this.yawRate * S.s * 0.045, -0.7, 0.7);
     S.lean = damp(S.lean, lean, 6, dt);
     const crouch = clamp(0.25 + S.s / 30 + (input.fwd > 0 ? 0.25 : 0) + Math.abs(S.lean) * 0.5, 0, 1);
-    Poses.stance(this.targetPose, S.lean / 0.7, crouch, this.stateT, input.fwd > 0 ? 1 : 0);
+    S.trick = S.snap ? 'snap' : S.hangK > 0.05 ? 'hang' : S.trick;
+    S.trickK = damp(S.trickK, S.snap ? 1 : S.hangK, S.snap ? 14 : 8, dt);
+    Poses.stance(this.targetPose, S.lean / 0.7, crouch, this.stateT, input.fwd > 0 ? 1 : 0, { wob: S.wob, trick: S.trick, trickK: S.trick === 'hang' ? S.hangK : S.trickK });
     const L = this.board.L, T = this.board.T;
     if (popup) {
       // fra liggende: armene presser opp, beina trekkes inn
@@ -601,16 +712,19 @@ export class Player {
       setJ(this.targetPose, 'knR', 1.2, 0, 0);
       this.setLocals([0, -0.02, 0, 0, 0, 0], [0, T + 0.4, L * 0.12 - 1.0, Math.PI / 2 - 0.5, 0, 0]);
     } else {
-      this.setLocals([0, -0.02, 0, 0, 0, 0], [0, T - 0.02, -L * 0.06, 0, -Math.PI / 2, 0]);
+      // på hang ten går surferen ut på nesa
+      this.setLocals([0, -0.02, 0, 0, 0, 0], [0, T - 0.02, lerp(-L * 0.06, L * 0.3, S.hangK), 0, -Math.PI / 2, 0]);
     }
     // hint om retning
     S.hint = '';
-    if (w.started && Math.abs(inside) < 25) {
-      const shoulderDir = Math.sign(S.x - w.peak) || 1; // vekk fra toppen
+    const shoulderDir = w.dir ? w.dir : Math.sign(S.x - w.peak) || 1; // vekk fra toppen
+    if (S.hangK > 0.85) S.hint = `Hang ten! ${S.hangT.toFixed(1)} s`;
+    else if (w.started && Math.abs(inside) < 25) {
       // skjermhøyre når du ser mot land er -x
       if (S.time < 3) S.hint = shoulderDir < 0 ? 'Skulderen er til høyre → (D)' : '← Skulderen er til venstre (A)';
       else if (inside < 2.5) S.hint = 'Curlen tar deg igjen – få fart!';
       else if (pocket > 0.7) S.hint = 'I lommen! 🔥';
+      else if (S.s > 7 && S.tricks === 0) S.hint = 'Opp mot leppa + Space for å hoppe';
     } else if (S.time < 2) S.hint = 'Sving langs bølgen med A/D';
     // slutt
     const depth = this.depthAt(this.x, this.z);
@@ -621,15 +735,90 @@ export class Player {
     }
     if (depth < 0.9 || w.zc > -4) return this.endRide('Ride ferdig', depth < 0.45 ? 'walk' : 'paddle', true);
   }
+  // Triks-poeng: combo-multiplikator for hvert triks på samme bølge
+  award(name, pts) {
+    const S = this.surf;
+    const mult = Math.min(2.5, 1 + S.tricks * 0.25) * (this.board.trickBonus || 1);
+    const p = Math.round(pts * mult);
+    S.score += p;
+    S.trickPts += p;
+    S.tricks++;
+    this.w.hud.trick(name, p, mult);
+    if (S.tricks > 1 || p > 300) this.w.audio.great();
+    else this.w.audio.good();
+  }
+  awardHang() {
+    const S = this.surf;
+    if (S.hangT > 0.7) this.award(`Hang ten ${S.hangT.toFixed(1)} s`, (40 + S.hangT * 70) * (this.board.L > 2.4 ? 1.4 : 1));
+    S.hangT = 0;
+  }
+  updateAir(dt, input) {
+    const W = this.w.waves;
+    const S = this.surf;
+    const A = S.air;
+    const w = S.w;
+    A.t += dt;
+    A.vy -= 9.8 * 1.05 * dt;
+    A.h += A.vy * dt;
+    A.maxH = Math.max(A.maxH, A.h);
+    // A/D spinner, W griper brettet
+    A.spinV = damp(A.spinV, input.turn * 8.2, input.turn ? 5 : 11, dt);
+    A.spin += A.spinV * dt;
+    if (!input.turn) {
+      // slipper du tasten, retter brettet seg mot nærmeste halve omdreining (lettere å lande)
+      const near = Math.round(A.spin / Math.PI) * Math.PI;
+      A.spin += (near - A.spin) * (1 - Math.exp(-5 * dt));
+    }
+    if (input.fwd > 0) A.grabT += dt;
+    const cosY = Math.cos(this.yaw), sinY = Math.sin(this.yaw);
+    S.s = Math.max(0, S.s - 0.5 * dt);
+    S.x += S.s * sinY * dt;
+    S.d += (S.s * cosY * 0.7 - 1.0) * dt;
+    S.time += dt;
+    this.x = S.x;
+    this.z = W.crestZ(w, S.x) + S.d;
+    this.speed = S.s;
+    this.yawRate = 0;
+    S.trick = input.fwd > 0 ? 'grab' : 'air';
+    S.trickK = damp(S.trickK, 1, 9, dt);
+    S.lean = damp(S.lean, 0, 4, dt);
+    Poses.stance(this.targetPose, 0, 0.6, this.stateT, 0, { trick: S.trick, trickK: S.trickK });
+    const L = this.board.L, T = this.board.T;
+    this.setLocals([0, -0.02, 0, 0, 0, 0], [0, T - 0.02, -L * 0.06, 0, -Math.PI / 2, 0]);
+    const halves = Math.round(Math.abs(A.spin) / Math.PI);
+    S.hint = halves > 0 ? `${halves * 180}°` + (A.grabT > 0.2 ? ' + grab' : '') : A.grabT > 0.2 ? 'Grab!' : 'A/D spinn · W grab';
+    if (A.h > 0 || A.t < 0.15) return;
+    // landing
+    S.air = null;
+    S.trickK = 0;
+    S.trick = null;
+    const rem = wrapAngle(A.spin);
+    const clean = Math.abs(rem) < 0.8;
+    const reverse = Math.abs(Math.abs(rem) - Math.PI) < 0.8;
+    if (!clean && !reverse) return this.wipe('Skjev landing!');
+    S.spinRest = rem; // brettet glir rundt igjen etter landing
+    const deg = halves * 180;
+    const grab = A.grabT > 0.2;
+    let name = deg === 0 ? 'Air' : halves % 2 ? `Air reverse ${deg}` : `Air ${deg}`;
+    if (grab) name += ' + grab';
+    this.award(name, 90 + A.maxH * 60 + halves * 110 + (grab ? 100 : 0));
+    this.w.effects.splash(this.x, W.height(this.x, this.z) + 0.2, this.z, 30, 1.2, 1.1);
+    this.w.audio.splash(0.9);
+    this.w.camera.shake(0.15, 0.3);
+    S.s *= reverse ? 0.8 : 0.92;
+    if (S.d < -0.9) return this.endRide('Air ut bak bølgen!', 'paddle', true);
+  }
   endRide(msg, next, good = false) {
     const S = this.surf;
     const pts = Math.round(S.score);
     if (S.time > 1.2) {
       this.score += pts;
-      this.w.hud.toast(msg, `${S.time.toFixed(1)} s · ${Math.round(S.top * 3.6)} km/t · ${S.carves} carves · +${pts} stoke`, good ? 'good' : 'bad', 3.2);
+      this.w.hud.toast(msg, `${S.time.toFixed(1)} s · ${Math.round(S.top * 3.6)} km/t · ${S.carves} carves · ${S.tricks} triks · +${pts} poeng`, good ? 'good' : 'bad', 3.2);
       if (good && S.time > 6) this.w.audio.great();
     } else this.w.hud.toast(msg, '', good ? 'good' : 'bad', 1.4);
     S.w = null;
+    S.air = null;
+    S.hangK = 0;
     if (next === 'washed') {
       this.getHit({ w: null, power: 1 }, 0.6);
       return;
@@ -645,12 +834,14 @@ export class Player {
     const S = this.surf;
     const pts = Math.round(S.score * 0.5);
     this.score += pts;
-    this.w.hud.toast('Wipeout!', `${msg} · ${S.time.toFixed(1)} s · +${pts} stoke`, 'bad', 2.6);
+    this.w.hud.toast('Wipeout!', `${msg} · ${S.time.toFixed(1)} s · +${pts} poeng`, 'bad', 2.6);
     this.w.audio.hit();
     this.w.camera.shake(0.5, 0.8);
     this.w.effects.splash(this.x, this.w.waves.height(this.x, this.z) + 0.5, this.z, 50, 1.6, 1.3);
     this.w.effects.foamPuff(this.x, this.w.waves.height(this.x, this.z), this.z, 20, 1.1);
     S.w = null;
+    S.air = null;
+    S.hangK = 0;
     this.vz = 4.2;
     this.vx = Math.sin(this.yaw) * 2;
     this.setState('wipeout');
@@ -685,7 +876,7 @@ export class Player {
     this.rigYOff = damp(this.rigYOff, 0, 6, dt);
     let y = this.rigY + this.rigYOff;
     let pitch = 0, roll = 0;
-    if (s !== 'walk' && s !== 'shop') {
+    if (s !== 'walk' && s !== 'shop' && s !== 'talk') {
       const [gx, gz] = W.gradient(this.x, this.z, 0.6);
       const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
       const along = gx * fx + gz * fz;
@@ -698,7 +889,14 @@ export class Player {
         pitch += Math.sin(this.paddlePh * 2) * 0.02 * this.paddlePower - 0.03 * this.paddlePower;
         roll += Math.sin(this.paddlePh) * 0.035 * this.paddlePower - this.yawRate * 0.08;
       }
-      if (s === 'surf' || s === 'popup') roll += this.surf.lean * 0.75;
+      if (s === 'surf' || s === 'popup') {
+        roll += this.surf.lean * 0.75;
+        if (this.surf.air) {
+          y += this.surf.air.h;
+          pitch = pitch * 0.4 - 0.12;
+          roll *= 0.4;
+        }
+      }
       if (s === 'duck') {
         const T = this.stateT, D = this.duck;
         const down = smoothstep(0, 0.28, T) * (1 - smoothstep(D.maxT - 0.35, D.maxT, T));
@@ -724,7 +922,9 @@ export class Player {
     this.y = y;
     this.offX = damp(this.offX, 0, 5, dt);
     this.offZ = damp(this.offZ, 0, 5, dt);
-    this.rig.set(this.x + this.offX, y, this.z + this.offZ, this.pitch, this.yaw, this.roll);
+    const S = this.surf;
+    const spin = s === 'surf' ? (S.air ? S.air.spin : S.spinRest || 0) : 0;
+    this.rig.set(this.x + this.offX, y, this.z + this.offZ, this.pitch, this.yaw + spin, this.roll);
     // blanding av pose og lokale transformasjoner
     this.blendT += dt;
     const k = ease(clamp(this.blendT / this.blendDur, 0, 1));

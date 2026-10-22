@@ -2,7 +2,7 @@
 import { Node, mulberry32, fbm, smoothstep, mat4 } from '../engine/math.js';
 import { Mesh, makeMaterial } from '../engine/renderer.js';
 import { Geo, box, cylinder, sphere, lathe, tube, extrude, blob, plane, hex, mixColor } from '../engine/geometry.js';
-import { groundHeight, shoreZ } from './terrain.js';
+import { groundHeight, shoreZ, headlandMask } from './terrain.js';
 import { signTexture, towelTexture, canvas } from '../textures.js';
 import { BOARDS, buildBoardGeo, buildFinsGeo, boardCanvas } from '../player/boards.js';
 import { OUTFITS, printCanvas } from '../player/outfits.js';
@@ -357,6 +357,87 @@ function surfSignGeo(w, h) {
   return extrude(pts, 0.06);
 }
 
+// Jungeltre: stamme og flere lag med løvklumper. tall > 1 gir høye kjempetrær som stikker opp
+function jungleTree(geo, wgeo, x, z, rnd, tall = 1) {
+  const y = G(x, z);
+  const th = (3 + rnd() * 5) * tall;
+  geo.add(cylinder(0.16 * tall, 0.3 * tall, th, 6, '#6b4e36').tf(x, y - 0.3, z));
+  const n = 3 + Math.floor(rnd() * 3) + (tall > 1.3 ? 2 : 0);
+  const base = mixColor(hex('#1f5a2a'), hex('#3d8a3a'), rnd());
+  for (let k = 0; k < n; k++) {
+    const rr = (1.6 + rnd() * 1.6) * Math.sqrt(tall);
+    const a = rnd() * 6.28, d = rnd() * 1.4 * tall;
+    const b = blob(rr, 2, rnd, 0.22, [1, 1, 1], true).tf(x + Math.cos(a) * d, y + th + rnd() * 1.2 * tall, z + Math.sin(a) * d, 0, 0, 0, 1, 0.75, 1);
+    b.colorFn((px, py) => mixColor(base, hex('#72b84a'), smoothstep(y + th - rr, y + th + rr, py) * 0.6));
+    b.windFn(() => 0.06);
+    wgeo.add(b);
+  }
+}
+
+// Lianer som henger ned fra kanten av klippene
+function vine(wgeo, x, y, z, len, rnd, out) {
+  const pts = [];
+  const N = 10;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    pts.push([x + out[0] * (0.6 + Math.sin(t * 3) * 0.4), y - len * t, z + out[1] * (0.6 + Math.sin(t * 2.3) * 0.4)]);
+  }
+  const g = tube(pts, pts.map((_, i) => 0.06 - i * 0.004), 4, '#2c5a26');
+  g.windFn((px, py) => clamp01((y - py) / len) * 0.5);
+  wgeo.add(g);
+  for (let i = 1; i < N; i += 2) {
+    const p = pts[i];
+    const l = blob(0.35 + rnd() * 0.35, 1, rnd, 0.3, [1, 1, 1], true).tf(p[0], p[1], p[2], 0, 0, 0, 1, 0.7, 1);
+    const col = rnd() < 0.2 ? hex('#d8433a') : mixColor(hex('#2f6d2c'), hex('#5fa844'), rnd());
+    l.color(col, 0.5);
+    wgeo.add(l);
+  }
+}
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+
+// Høy fjellstabel ute i havet: smal, undergravd fot og frodig jungeltopp
+function seaStack(geo, wgeo, x, z, h, r0, rnd) {
+  const prof = [];
+  const N = 14;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    let r = r0 * (0.72 + 0.28 * Math.sin(t * Math.PI * 0.9 + 0.2) + 0.1 * t);
+    if (t < 0.08) r *= 0.82; // hulkil ved vannkanten
+    prof.push([r, -4 + t * h]);
+  }
+  prof.push([r0 * 0.6, h - 3], [0, h - 2]);
+  const g = lathe(prof, 18);
+  const seeds = [rnd() * 10, rnd() * 10];
+  g.displace((px, py, pz) => {
+    const a = Math.atan2(pz, px);
+    const k = 1 + 0.12 * Math.sin(a * 5 + seeds[0]) + 0.06 * Math.sin(a * 11 + py * 0.15 + seeds[1]);
+    return [px * k, py, pz * k];
+  });
+  g.colorFn((px, py) => {
+    const streak = Math.sin(Math.atan2(0, 1) + px * 0.9 + py * 0.02) * 0.5 + 0.5;
+    const rock = mixColor(hex('#c4b7a0'), hex('#7d7262'), streak * 0.5 + (py < 3 ? 0.4 : 0));
+    return mixColor(rock, hex('#3f7a34'), smoothstep(h * 0.55, h * 0.9, py) * 0.55);
+  });
+  g.computeNormals();
+  geo.add(g.tf(x, 0, z));
+  // jungeltopp
+  const n = 7 + Math.floor(rnd() * 5);
+  for (let k = 0; k < n; k++) {
+    const a = rnd() * 6.28, d = rnd() * r0 * 0.9;
+    const rr = r0 * (0.35 + rnd() * 0.3);
+    const b = blob(rr, 2, rnd, 0.25, [1, 1, 1], true).tf(x + Math.cos(a) * d, h - 2 + rnd() * rr * 0.6, z + Math.sin(a) * d, 0, 0, 0, 1, 0.7, 1);
+    const bc = mixColor(hex('#1f5a2a'), hex('#4f9a3a'), rnd());
+    b.colorFn((px, py) => mixColor(bc, hex('#7cc04a'), smoothstep(h - 2, h + rr, py) * 0.5));
+    geo.add(b);
+  }
+  // grønne hengende teppe nedover sidene
+  for (let k = 0; k < 6; k++) {
+    const a = rnd() * 6.28;
+    const rr = r0 * 0.9;
+    vine(wgeo, x + Math.cos(a) * rr, h - 3, z + Math.sin(a) * rr, h * (0.2 + rnd() * 0.3), rnd, [Math.cos(a) * 0.6, Math.sin(a) * 0.6]);
+  }
+}
+
 export function buildBeach(r) {
   const gl = r.gl;
   const rnd = mulberry32(42);
@@ -393,26 +474,64 @@ export function buildBeach(r) {
   }
 
   // ---- jungeltrær på koller og odder ----
-  for (let i = 0; i < 170; i++) {
+  for (let i = 0; i < 300; i++) {
     const x = -150 + rnd() * 300;
-    const s = 46 + rnd() * 60;
+    const s = 46 + rnd() * 70;
     let z = shoreZ(x) + s;
     if (Math.abs(x) > 100) z = -60 + rnd() * 150;
     if (z > 118) continue;
-    const y = G(x, z);
-    if (y < 2) continue;
-    const th = 3 + rnd() * 5;
-    geo.add(cylinder(0.18, 0.3, th, 6, '#6b4e36').tf(x, y - 0.3, z));
-    const n = 3 + Math.floor(rnd() * 3);
-    const base = mixColor(hex('#245e2c'), hex('#3d8a3a'), rnd());
-    for (let k = 0; k < n; k++) {
-      const rr = 1.6 + rnd() * 1.6;
-      const a = rnd() * 6.28, d = rnd() * 1.4;
-      const b = blob(rr, 2, rnd, 0.22, [1, 1, 1], true).tf(x + Math.cos(a) * d, y + th + rnd() * 1.2, z + Math.sin(a) * d, 0, 0, 0, 1, 0.8, 1);
-      b.colorFn((px, py) => mixColor(base, hex('#6fb54a'), smoothstep(y + th - rr, y + th + rr, py) * 0.6));
-      b.windFn(() => 0.08);
+    if (G(x, z) < 2) continue;
+    jungleTree(geo, wgeo, x, z, rnd, 1 + rnd() * 0.5);
+  }
+  // høye kjempetrær som stikker opp over resten av skogen
+  for (let i = 0; i < 70; i++) {
+    const x = -140 + rnd() * 280;
+    const z = shoreZ(x) + 55 + rnd() * 60;
+    if (z > 118 || G(x, z) < 3) continue;
+    jungleTree(geo, wgeo, x, z, rnd, 1.7 + rnd() * 0.8);
+  }
+  // tett skog på toppen av klippene, og lianer over kanten
+  for (let i = 0; i < 520; i++) {
+    const side = rnd() < 0.5 ? -1 : 1;
+    const z = -200 + rnd() * 320;
+    const bx = 98 - 0.3 * z;
+    const x = side * (bx + 6 + rnd() * 60);
+    if (Math.abs(x) > 198 || z > 118) continue;
+    if (headlandMask(x, z) < 0.6 || G(x, z) < 8) continue;
+    jungleTree(geo, wgeo, x, z, rnd, 0.9 + rnd() * 0.9);
+  }
+  // busker og bregner som klamrer seg til klippeveggene
+  for (let i = 0; i < 260; i++) {
+    const side = rnd() < 0.5 ? -1 : 1;
+    const z = -190 + rnd() * 300;
+    if (z > 118) continue;
+    const bx = 98 - 0.3 * z;
+    const want = 3 + rnd() * 26;
+    let best = null;
+    for (let q = -2; q <= 9; q += 0.5) {
+      const x = side * (bx + q);
+      const d = Math.abs(G(x, z) - want);
+      if (!best || d < best[1]) best = [x, d];
+    }
+    if (best[1] > 1.5) continue;
+    const x = best[0] - side * 0.4;
+    const bc = mixColor(hex('#24602a'), hex('#5aa544'), rnd());
+    for (let k = 0; k < 3; k++) {
+      const rr = 1.3 + rnd() * 2.2;
+      const b = blob(rr, 2, rnd, 0.25, [1, 1, 1], true).tf(x, want + (rnd() - 0.5) * 2.5, z + (rnd() - 0.5) * 4, 0, 0, 0, 0.6, 0.75, 1.3);
+      b.colorFn((px, py) => mixColor(bc, hex('#86c656'), smoothstep(want - rr, want + rr, py) * 0.4));
+      b.windFn(() => 0.06);
       wgeo.add(b);
     }
+  }
+  for (let i = 0; i < 160; i++) {
+    const side = rnd() < 0.5 ? -1 : 1;
+    const z = -190 + rnd() * 210;
+    const bx = 98 - 0.3 * z;
+    const x = side * (bx + 7.5);
+    const top = G(x, z);
+    if (top < 10) continue;
+    vine(wgeo, x, top, z, top * (0.35 + rnd() * 0.45), rnd, [-side * 0.8, 0]);
   }
 
   // ---- busker, gress, blomster ----
@@ -470,7 +589,7 @@ export function buildBeach(r) {
   geo.add(box(3.6, 0.1, 0.4, '#8a6440').tf(rackX, ry0 + 0.1, rackZ));
   colliders.push({ x: rackX, z: rackZ, r: 1.9 });
   const rackBoards = [];
-  BOARDS.forEach((b, i) => {
+  BOARDS.filter((b) => !b.unlock).forEach((b, i) => {
     const mesh = new Mesh(gl, buildBoardGeo(b));
     const fins = new Mesh(gl, buildFinsGeo(b));
     const mat = makeMaterial({ tex: r.texture(boardCanvas(b)), vcol: true, spec: 0.6, double: true });
@@ -558,7 +677,10 @@ export function buildBeach(r) {
   colliders.push(signPost(r, root, geo, 48, 4.5, Math.PI + 0.3, [{ text: 'SETT HVERT', size: 54 }, { text: '~30 SEKUND', size: 54, color: '#13a7b5' }], { w: 1.3, hh: 0.75, tex: { w: 512, h: 256, gap: 80 } }));
 
   // ---- fjerne øyer ----
-  const isl = [[-420, -760, 60, 30], [-250, -900, 40, 20], [380, -820, 80, 36], [560, -650, 40, 22]];
+  // fjellstabler ved munningen av bukta og lenger ute
+  const stacks = [[-178, -330, 58, 16], [205, -385, 72, 20], [-300, -520, 84, 26], [95, -610, 52, 14], [360, -560, 66, 22], [-120, -760, 70, 24]];
+  for (const [x, z, h, rr] of stacks) seaStack(geo, wgeo, x, z, h, rr, rnd);
+  const isl = [[-420, -760, 60, 52], [-250, -900, 40, 38], [380, -820, 80, 60], [560, -650, 40, 40]];
   for (const [x, z, s, h] of isl) {
     const b = blob(s, 3, rnd, 0.25).tf(x, -s * 0.5 + h * 0.2, z, 0, 0, 0, 1, h / s, 1);
     b.colorFn((px, py) => (py > 2 ? mixColor(hex('#3f7f45'), hex('#5aa85a'), rnd()) : hex('#cdb98a')));

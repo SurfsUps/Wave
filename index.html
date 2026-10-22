@@ -30,12 +30,18 @@
 
     <div id="ride" class="hidden">
       <div id="ride-speed"><span id="ride-kmh">0</span><small>km/t</small></div>
-      <div id="ride-stats"><span id="ride-time">0.0 s</span> · <span id="ride-carves">0</span> carves</div>
+      <div id="ride-stats"><span id="ride-time">0.0 s</span> · <span id="ride-carves">0</span> carves · <span id="ride-tricks">0</span> triks</div>
       <div id="ride-hint"></div>
     </div>
 
     <div id="controls"></div>
-    <div id="score" class="pill"><span>Stoke</span> <b id="score-val">0</b></div>
+    <div id="score" class="pill"><span>Surfepoeng</span> <b id="score-val">0</b></div>
+    <div id="trick"></div>
+    <div id="dialog" class="hidden">
+      <div id="dialog-name">Chicken Joe</div>
+      <div id="dialog-text"></div>
+      <div id="dialog-foot"><kbd>E</kbd> <span id="dialog-more">Fortsett</span> · <kbd>Esc</kbd> Lukk</div>
+    </div>
   </div>
 
   <!-- Butikk -->
@@ -66,7 +72,7 @@
         <h3>På stranden</h3>
         <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Gå</p>
         <p><kbd>Shift</kbd> Løp</p>
-        <p><kbd>E</kbd> Snakk med butikken</p>
+        <p><kbd>E</kbd> Butikken / snakk med Chicken Joe og Cody ved bålet</p>
         <p>Dra med musa: se rundt · hjul: zoom</p>
       </div>
       <div>
@@ -81,6 +87,14 @@
         <p><kbd>A</kbd>/<kbd>D</kbd> Carve (hold for skarpere sving)</p>
         <p><kbd>W</kbd> Pump for fart · <kbd>S</kbd> Brems</p>
         <p>Hold deg foran curlen – nedover gir fart, opp gir høyde.</p>
+      </div>
+      <div>
+        <h3>Triks</h3>
+        <p><kbd>Space</kbd> Hopp fra toppen (air)</p>
+        <p>I lufta: <kbd>A</kbd>/<kbd>D</kbd> spinn · <kbd>W</kbd> grab</p>
+        <p><kbd>F</kbd> Snap på leppa</p>
+        <p>Hold <kbd>Q</kbd> Hang ten</p>
+        <p>Flere triks på samme bølge gir combo. 2000 poeng låser opp Chicken Joes maisbrett!</p>
       </div>
     </div>
     <p class="help-foot"><kbd>H</kbd> vis/skjul hjelp · <kbd>M</kbd> lyd av/på</p>
