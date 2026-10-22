@@ -296,13 +296,17 @@ export const Poses = {
     return p;
   },
   // stående på brettet, sidelengs (regular: venstre fot frem). Venstre arm leder mot nesa,
-  // høyre arm balanserer bak. o: { turn, wob, trick, trickK } for armbevegelser og triks.
+  // høyre arm balanserer bak. lean: -1..1 (positiv = mot tå-railen), crouch: 0..1.
+  // o: { wob, trick, trickK, hipShift, hipDrop, balance, armErr, headTurn, level: [roll, pitch] }
+  // Beina settes her bare grovt – plantFeet() legger føttene nøyaktig på brettet etterpå.
   stance(p, lean, crouch, t, pump = 0, o = {}) {
     p.fill(0);
     const pumpW = pump * Math.sin(t * 7);
     const c = 0.25 + crouch * 0.55 + pump * 0.25 * pumpW;
     const toe = Math.max(0, lean), heel = Math.max(0, -lean);
     const wob = Math.min(1, Math.abs(o.wob || 0));
+    const bal = Math.min(1.4, o.balance || 0);
+    const armErr = o.armErr || 0;
     // bena sprikes langs karakterens x-akse (mot nese/hale)
     setJ(p, 'hipL', -c * 0.55 - heel * 0.15, 0, 0.42);
     setJ(p, 'hipR', -c * 0.55 - heel * 0.15, 0, -0.42);
@@ -310,23 +314,30 @@ export const Poses = {
     setJ(p, 'knR', c * 1.05 + toe * 0.25, 0, 0);
     setJ(p, 'ftL', -c * 0.5, -0.1, -0.42);
     setJ(p, 'ftR', -c * 0.5, 0.1, 0.42);
-    // overkroppen bøyer seg inn i svingen og skuldrene roterer dit man skal
-    setJ(p, 'torso', 0.16 + c * 0.32 + toe * 0.42 - heel * 0.12, 0.32 + lean * 0.38, lean * 0.12);
-    setJ(p, 'neck', -0.2 - c * 0.2 - toe * 0.25 + heel * 0.08, 0.55 + lean * 0.22, 0);
+    // Brettet ruller allerede inn i svingen, så kroppen trenger bare litt ekstra bøy i forhold til brettet.
+    // Bekkenet vippes litt, overkroppen bøyer seg inn og skuldrene roterer dit man skal.
+    setJ(p, 'hips', c * 0.08 + toe * 0.05, 0, 0);
+    setJ(p, 'torso', 0.1 + c * 0.24 + toe * 0.14 - heel * 0.12 + bal * 0.1, 0.32 + lean * (o.twist ?? 0.38), lean * 0.08);
+    // hodet: ser mot nesa og inn i svingen, holdes delvis vatter når brettet heller
+    const lv = o.level || [0, 0];
+    setJ(p, 'neck', -0.2 - c * 0.2 - toe * 0.25 + heel * 0.08 - lv[0], 0.55 + lean * 0.12 + (o.headTurn || 0), lv[1]);
     // små balansebevegelser: armene er aldri helt stille
     const b1 = Math.sin(t * 1.9) * 0.07 + Math.sin(t * 3.3 + 1) * 0.04;
     const b2 = Math.sin(t * 2.3 + 2) * 0.07 + Math.sin(t * 3.7) * 0.04;
+    // ubalanse: armene ut til sidene og «padler» i lufta mot feilen
+    const flail = bal * Math.sin(t * 6.5) * 0.25;
     // ledende arm (venstre): ut mot nesa, ned mot vannet på toeside, frem på heelside
-    let lx = -0.35 - toe * 0.75 - heel * 0.55 + b1 * 0.5;
-    let lz = 0.95 - crouch * 0.18 - toe * 0.35 + heel * 0.1 + b1 + wob * 0.35 - pumpW * 0.18;
+    const lx = -0.35 - toe * 0.4 - heel * 0.55 + b1 * 0.5 - armErr + flail;
+    const lz = 0.95 - crouch * 0.18 - toe * 0.2 + heel * 0.1 + b1 + wob * 0.35 - pumpW * 0.18 + bal * 0.35;
     // bakre arm (høyre): balanserer, løftes bak på toeside, krysser frem på heelside
-    let rx = -0.12 + toe * 0.45 - heel * 0.85 + b2 * 0.5;
-    let rz = -0.72 + crouch * 0.1 - toe * 0.4 + heel * 0.38 - b2 - wob * 0.4 + pumpW * 0.18;
+    const rx = -0.12 + toe * 0.45 - heel * 0.85 + b2 * 0.5 - armErr - flail;
+    const rz = -0.72 + crouch * 0.1 - toe * 0.4 + heel * 0.38 - b2 - wob * 0.4 + pumpW * 0.18 - bal * 0.5;
     setJ(p, 'shL', lx, 0.15, lz);
     setJ(p, 'shR', rx, -0.15, rz);
-    setJ(p, 'elL', -0.4 - heel * 0.35 - wob * 0.2, 0, 0);
-    setJ(p, 'elR', -0.55 - heel * 0.45 + toe * 0.25, 0, 0);
-    setOffset(p, 0, -c * 0.32 - toe * 0.04, 0);
+    setJ(p, 'elL', -0.4 - heel * 0.35 - wob * 0.2 - bal * 0.2, 0, 0);
+    setJ(p, 'elR', -0.55 - heel * 0.45 + toe * 0.25 - bal * 0.2, 0, 0);
+    // hoftene senkes ved knebøy og flyttes mot tå/hæl-railen i svinger
+    setOffset(p, 0, o.hipDrop !== undefined ? -o.hipDrop : -c * 0.32 - toe * 0.04, o.hipShift || 0);
     const tr = o.trick, k = o.trickK || 0;
     if (tr && k > 0) Poses.trick(p, tr, k, t);
     return p;
@@ -418,3 +429,59 @@ export const Poses = {
     return p;
   },
 };
+
+// ---------- fotplassering (enkel analytisk IK for to-ledds bein) ----------
+// Rotasjonsmatrise (rad-major) i samme rekkefølge som Node: R = Ry · Rx · Rz
+function rotM(rx, ry, rz) {
+  const cx = Math.cos(rx), sx = Math.sin(rx), cy = Math.cos(ry), sy = Math.sin(ry), cz = Math.cos(rz), sz = Math.sin(rz);
+  return [
+    cy * cz + sy * sx * sz, -cy * sz + sy * sx * cz, sy * cx,
+    cx * sz, cx * cz, -sx,
+    -sy * cz + cy * sx * sz, sy * sz + cy * sx * cz, cy * cx,
+  ];
+}
+function mulM(a, b) {
+  const o = new Array(9);
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) o[i * 3 + j] = a[i * 3] * b[j] + a[i * 3 + 1] * b[3 + j] + a[i * 3 + 2] * b[6 + j];
+  return o;
+}
+const trM = (a) => [a[0], a[3], a[6], a[1], a[4], a[7], a[2], a[5], a[8]];
+const mulV = (a, v) => [a[0] * v[0] + a[1] * v[1] + a[2] * v[2], a[3] * v[0] + a[4] * v[1] + a[5] * v[2], a[6] * v[0] + a[7] * v[1] + a[8] * v[2]];
+const eulerM = (r) => [Math.asin(Math.max(-1, Math.min(1, -r[5]))), Math.atan2(r[2], r[8]), Math.atan2(r[3], r[4])];
+
+const THIGH = 0.42, SHIN = 0.42;
+// Plasserer føttene på målpunkter i karakterens rotrom (y = 0 er brettets overflate) og
+// vinkler dem flatt mot brettet. w (0..1) blander IK-løsningen inn over posen som allerede står i p.
+export function plantFeet(p, front, back, frontYaw, backYaw, w = 1) {
+  if (w <= 0) return p;
+  const o = J.length * 3;
+  const hipsPos = [p[o], 0.95 + p[o + 1], p[o + 2]];
+  const hi = JI.hips * 3;
+  const Rh = rotM(p[hi], p[hi + 1], p[hi + 2]);
+  const RhT = trM(Rh);
+  const legs = [['hipL', 'knL', 'ftL', 0.095, front, frontYaw], ['hipR', 'knR', 'ftR', -0.095, back, backYaw]];
+  for (const [hip, kn, ft, hx, tgt, yaw] of legs) {
+    const hl = mulV(Rh, [hx, -0.07, 0]);
+    const v = mulV(RhT, [tgt[0] - hipsPos[0] - hl[0], tgt[1] - hipsPos[1] - hl[1], tgt[2] - hipsPos[2] - hl[2]]);
+    const D = Math.min(Math.max(Math.hypot(v[0], v[1], v[2]), 0.3), (THIGH + SHIN) * 0.995);
+    const cosK = (THIGH * THIGH + SHIN * SHIN - D * D) / (2 * THIGH * SHIN);
+    const k = Math.PI - Math.acos(Math.max(-1, Math.min(1, cosK)));
+    const y0 = -(THIGH + SHIN * Math.cos(k)), z0 = -SHIN * Math.sin(k);
+    const c = Math.asin(Math.max(-1, Math.min(1, v[0] / -y0)));
+    let a = Math.atan2(v[2], v[1]) - Math.atan2(z0, y0 * Math.cos(c));
+    a = Math.atan2(Math.sin(a), Math.cos(a));
+    // foten flat mot brettet: R_fot = (R_hofter · R_hofte · R_kne)ᵀ · Ry(yaw)
+    const Rshin = mulM(mulM(Rh, rotM(a, 0, c)), rotM(k, 0, 0));
+    const fe = eulerM(mulM(trM(Rshin), rotM(0, yaw, 0)));
+    const blend = (name, x, y, z) => {
+      const i = JI[name] * 3;
+      p[i] += (x - p[i]) * w;
+      p[i + 1] += (y - p[i + 1]) * w;
+      p[i + 2] += (z - p[i + 2]) * w;
+    };
+    blend(hip, a, 0, c);
+    blend(kn, k, 0, 0);
+    blend(ft, fe[0], fe[1], fe[2]);
+  }
+  return p;
+}

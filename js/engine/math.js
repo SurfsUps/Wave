@@ -179,3 +179,32 @@ export class Node {
     for (const c of this.children) c.update(this.world);
   }
 }
+
+// Dempet fjær (implisitt Euler, stabil også ved store dt). freq i Hz, zeta = dempingsforhold
+// (1 = kritisk dempet, < 1 gir litt overshoot/svikt). Brukes for myke, fysiske overganger.
+export class Spring {
+  constructor(x = 0) {
+    this.x = x;
+    this.v = 0;
+  }
+  update(target, freq, zeta, dt) {
+    const w = Math.PI * 2 * freq;
+    const f = 1 + 2 * dt * zeta * w;
+    const hoo = dt * w * w;
+    const hhoo = dt * hoo;
+    const inv = 1 / (f + hhoo);
+    const x = (f * this.x + dt * this.v + hhoo * target) * inv;
+    this.v = (this.v + hoo * (target - this.x)) * inv;
+    this.x = x;
+    return x;
+  }
+  reset(x = 0) {
+    this.x = x;
+    this.v = 0;
+    return this;
+  }
+}
+
+// Jevn, deterministisk 1D-støy (sum av sinuser med ulike perioder) i området ca. -1..1
+export const wobble = (t, seed = 0) =>
+  (Math.sin(t * 1.37 + seed) * 0.5 + Math.sin(t * 2.71 + seed * 1.9) * 0.3 + Math.sin(t * 4.43 + seed * 3.1) * 0.2);
