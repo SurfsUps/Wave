@@ -193,6 +193,17 @@ export class Effects {
         0.45 + Math.random() * 0.45, 0.05 + Math.random() * 0.08, 0.12, 0.97, 0.99, 1, 0.85, 9.8, 0.6);
     }
   }
+  // vifte av vann som kastes ut fra railen i en snap/cutback
+  railFan(x, y, z, dx, dz, k = 1) {
+    const n = Math.floor(26 * k);
+    for (let i = 0; i < n; i++) {
+      const spread = (Math.random() - 0.5) * 1.1;
+      const ox = dx + -dz * spread, oz = dz + dx * spread;
+      const s = (3 + Math.random() * 4.5) * k;
+      this.spray.spawn(x + (Math.random() - 0.5) * 0.4, y + 0.1, z + (Math.random() - 0.5) * 0.4, ox * s, (2.5 + Math.random() * 4) * k, oz * s,
+        0.6 + Math.random() * 0.6, 0.07 + Math.random() * 0.12, 0.25, 0.97, 0.99, 1, 0.85, 9.8, 0.7);
+    }
+  }
   wake(x, y, z) {
     this.spray.spawn(x + (Math.random() - 0.5) * 0.4, y + 0.03, z + (Math.random() - 0.5) * 0.4, 0, 0, 0, 0.9 + Math.random() * 0.6, 0.07 + Math.random() * 0.06, 0.05, 0.95, 0.99, 1.0, 0.28, 0, 1, y);
   }

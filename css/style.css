@@ -371,27 +371,28 @@ kbd {
 /* Triks-feed */
 #trick {
   position: absolute;
-  top: 34%;
-  left: 50%;
-  transform: translate(-50%, 0) scale(0.6);
+  right: 22px;
+  bottom: 122px;
+  transform: translateY(0) scale(0.9);
+  transform-origin: right bottom;
   font-family: 'Baloo 2', 'Nunito', sans-serif;
-  font-size: 40px;
+  font-size: 26px;
   font-weight: 800;
   color: #ffe36e;
-  text-align: center;
+  text-align: right;
   white-space: nowrap;
-  text-shadow: 0 3px 0 rgba(180, 70, 20, 0.7), 0 8px 24px rgba(0, 0, 0, 0.3);
+  text-shadow: 0 2px 0 rgba(180, 70, 20, 0.6), 0 6px 18px rgba(0, 0, 0, 0.25);
   opacity: 0;
   pointer-events: none;
 }
-#trick small { display: block; font-family: 'Nunito', sans-serif; font-size: 18px; color: #fff; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); }
-#trick.pop { animation: trickpop 1.7s ease-out forwards; }
+#trick small { display: block; font-family: 'Nunito', sans-serif; font-size: 14px; color: #fff; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); }
+#trick.pop { animation: trickpop 2.2s ease-out forwards; }
 @keyframes trickpop {
-  0% { opacity: 0; transform: translate(-50%, 10px) scale(0.6); }
-  12% { opacity: 1; transform: translate(-50%, 0) scale(1.08); }
-  22% { transform: translate(-50%, 0) scale(1); }
-  75% { opacity: 1; transform: translate(-50%, -14px) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, -30px) scale(0.95); }
+  0% { opacity: 0; transform: translateY(8px) scale(0.85); }
+  12% { opacity: 0.95; transform: translateY(0) scale(1.04); }
+  22% { transform: translateY(0) scale(1); }
+  80% { opacity: 0.9; transform: translateY(-6px) scale(1); }
+  100% { opacity: 0; transform: translateY(-14px) scale(0.97); }
 }
 
 /* Dialog med figurene ved bålet */
@@ -423,3 +424,42 @@ kbd {
 #dialog-text { font-size: 18px; font-weight: 700; line-height: 1.35; color: var(--ink); min-height: 2.6em; }
 #dialog-foot { margin-top: 8px; text-align: right; font-size: 13px; font-weight: 800; color: var(--ink-soft); }
 @keyframes dialogin { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+/* Duck dive-cooldown: liten ring som fylles opp igjen */
+#duck-cd {
+  position: absolute;
+  left: 50%;
+  bottom: 118px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px 5px 7px;
+  border-radius: 999px;
+  background: rgba(24, 50, 58, 0.55);
+  color: #e9fbff;
+  font-size: 12px;
+  font-weight: 800;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+#duck-cd.hidden { display: flex; opacity: 0; }
+#duck-cd kbd { opacity: 0.55; }
+#duck-cd.ready kbd { opacity: 1; }
+#duck-cd .ring {
+  --p: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: conic-gradient(#7ff0d8 calc(var(--p) * 360deg), rgba(255, 255, 255, 0.18) 0);
+  display: grid;
+  place-items: center;
+}
+#duck-cd .ring i { width: 8px; height: 8px; border-radius: 50%; background: rgba(24, 50, 58, 0.9); }
+#duck-cd.denied { animation: cdshake 0.3s; }
+@keyframes cdshake {
+  0%, 100% { transform: translateX(-50%); }
+  25% { transform: translateX(calc(-50% - 5px)); }
+  75% { transform: translateX(calc(-50% + 5px)); }
+}
+#timing.cooling #timing-key kbd { opacity: 0.4; }

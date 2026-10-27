@@ -108,6 +108,27 @@ export class Hud {
     $('dialog-text').textContent = info.text;
     $('dialog-more').textContent = info.last ? 'Ferdig' : 'Fortsett';
   }
+  // duck dive-cooldown: frac 0 = nettopp dykket, 1 = klar. Vises bare en kort stund
+  duckCooldown(frac, show) {
+    const el = $('duck-cd');
+    if (!show) {
+      if (!el.classList.contains('hidden')) el.classList.add('hidden');
+      return;
+    }
+    el.classList.remove('hidden');
+    el.classList.toggle('ready', frac >= 1);
+    const p = String(Math.round(frac * 50) / 50);
+    if (this.lastCd !== p) {
+      el.querySelector('.ring').style.setProperty('--p', p);
+      this.lastCd = p;
+    }
+  }
+  duckDenied() {
+    const el = $('duck-cd');
+    el.classList.remove('denied');
+    void el.offsetWidth;
+    el.classList.add('denied');
+  }
   setIndicator(text) {
     const el = $('set-indicator');
     if (!text) el.classList.add('hidden');
@@ -205,7 +226,7 @@ export class ShopUI {
   }
   detail(item) {
     let html = `<h4>${item.name}</h4><div>${item.desc || ''}</div>`;
-    if (!this.isUnlocked(item)) html += `<div class="lock-note">🔒 Lås opp med ${item.unlock} surfepoeng. Snakk med Chicken Joe ved bålet.</div>`;
+    if (!this.isUnlocked(item)) html += `<div class="lock-note">🔒 Lås opp med ${item.unlock} surfepoeng. ${item.giver || 'Chicken Joe'} gir deg den ved bålet.</div>`;
     if (item.stats) {
       const bar = (label, v) => `<div class="stat"><span>${label}</span><div class="bar"><i style="width:${Math.round(v * 100)}%"></i></div></div>`;
       html += bar('Padling', item.stats.paddle) + bar('Fart', item.stats.speed) + bar('Sving', item.stats.turn);

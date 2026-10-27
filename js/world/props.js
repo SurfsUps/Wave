@@ -358,7 +358,7 @@ function surfSignGeo(w, h) {
 }
 
 // Jungeltre: stamme og flere lag med løvklumper. tall > 1 gir høye kjempetrær som stikker opp
-function jungleTree(geo, wgeo, x, z, rnd, tall = 1) {
+function jungleTree(geo, wgeo, x, z, rnd, tall = 1, lod = 2) {
   const y = G(x, z);
   const th = (3 + rnd() * 5) * tall;
   geo.add(cylinder(0.16 * tall, 0.3 * tall, th, 6, '#6b4e36').tf(x, y - 0.3, z));
@@ -367,11 +367,57 @@ function jungleTree(geo, wgeo, x, z, rnd, tall = 1) {
   for (let k = 0; k < n; k++) {
     const rr = (1.6 + rnd() * 1.6) * Math.sqrt(tall);
     const a = rnd() * 6.28, d = rnd() * 1.4 * tall;
-    const b = blob(rr, 2, rnd, 0.22, [1, 1, 1], true).tf(x + Math.cos(a) * d, y + th + rnd() * 1.2 * tall, z + Math.sin(a) * d, 0, 0, 0, 1, 0.75, 1);
+    const b = blob(rr, lod, rnd, 0.22, [1, 1, 1], true).tf(x + Math.cos(a) * d, y + th + rnd() * 1.2 * tall, z + Math.sin(a) * d, 0, 0, 0, 1, 0.75, 1);
     b.colorFn((px, py) => mixColor(base, hex('#72b84a'), smoothstep(y + th - rr, y + th + rr, py) * 0.6));
     b.windFn(() => 0.06);
     wgeo.add(b);
   }
+}
+
+// Bøyd blad (bregneblad / palmeblad) som en stripe trekanter. w0: bredde, droop: hvor mye det henger
+function frond(g, x, y, z, ang, L, el, w0, droop, c0, c1, leaflets = true, S = 8) {
+  const dx = Math.cos(ang), dz = Math.sin(ang), sx = -dz, sz = dx;
+  const base = g.count;
+  for (let s = 0; s <= S; s++) {
+    const t = s / S;
+    const hor = L * t * Math.cos(el), ver = L * t * Math.sin(el) - t * t * L * droop;
+    const cx = x + dx * hor, cy = y + ver, cz = z + dz * hor;
+    const w = w0 * Math.pow(Math.sin(Math.PI * Math.min(1, t * 1.05 + 0.04)), 0.7) * (leaflets && s % 2 ? 1 : 0.6);
+    const col = mixColor(c0, c1, t);
+    const wv = 0.3 + t * 0.9;
+    g.v(cx, cy + 0.03, cz, 0, 1, 0, 0.5, t, col, wv);
+    g.v(cx + sx * w, cy - w * 0.3, cz + sz * w, 0, 1, 0, 0, t, mixColor(col, c0, 0.3), wv);
+    g.v(cx - sx * w, cy - w * 0.3, cz - sz * w, 0, 1, 0, 1, t, mixColor(col, c0, 0.3), wv);
+  }
+  for (let s = 0; s < S; s++) {
+    const a = base + s * 3, b = a + 3;
+    g.quad(a, a + 1, b + 1, b);
+    g.quad(a, b, b + 2, a + 2);
+  }
+}
+// Bregne: en rosett av buede, fjærformede blader tett ved bakken
+function fern(wgeo, x, z, s, rnd) {
+  const y = G(x, z) - 0.05;
+  const g = new Geo();
+  const n = 6 + Math.floor(rnd() * 4);
+  const c0 = mixColor(hex('#1f5a26'), hex('#2f7a30'), rnd()), c1 = mixColor(hex('#5fae43'), hex('#9cc95a'), rnd() * 0.5);
+  for (let i = 0; i < n; i++) frond(g, x, y, z, (i / n) * Math.PI * 2 + rnd() * 0.5, s * (0.8 + rnd() * 0.4), 0.7 + rnd() * 0.5, s * 0.17, 0.85, c0, c1, true, 6);
+  g.computeNormals();
+  wgeo.add(g);
+}
+// Bananplante / elefantøre: kort stamme og store, brede blader
+function bananaPlant(wgeo, x, z, s, rnd) {
+  const y = G(x, z) - 0.05;
+  const h = s * (0.8 + rnd() * 0.6);
+  const st = cylinder(0.08 * s, 0.12 * s, h, 6, '#5f8a3a').tf(x, y + h / 2, z);
+  st.windFn((px, py) => clamp01((py - y) / h) * 0.2);
+  wgeo.add(st);
+  const g = new Geo();
+  const n = 5 + Math.floor(rnd() * 3);
+  const c0 = hex('#2d6e2c'), c1 = rnd() < 0.3 ? hex('#a7c84a') : hex('#62b245');
+  for (let i = 0; i < n; i++) frond(g, x, y + h, z, (i / n) * Math.PI * 2 + rnd() * 0.6, s * (1.2 + rnd() * 0.6), 0.55 + rnd() * 0.5, s * 0.36, 0.7, c0, c1, false);
+  g.computeNormals();
+  wgeo.add(g);
 }
 
 // Lianer som henger ned fra kanten av klippene
@@ -532,6 +578,55 @@ export function buildBeach(r) {
     const top = G(x, z);
     if (top < 10) continue;
     vine(wgeo, x, top, z, top * (0.35 + rnd() * 0.45), rnd, [-side * 0.8, 0]);
+  }
+
+  // ---- jungelen bak stranden, lag for lag (lavt foran, høyt bak) ----
+  const clear = (x, z, r = 7) => Math.hypot(x - SHOP.x, z - SHOP.z) < r + 1 || Math.hypot(x - FIRE.x, z - FIRE.z) < r - 1;
+  // 1) skogkanten: bregner, bananplanter og busker tett i tett
+  for (let i = 0; i < 420; i++) {
+    const x = -112 + rnd() * 224;
+    const z = shoreZ(x) + 30 + rnd() * 22;
+    if (clear(x, z) || z > 118) continue;
+    const k = rnd();
+    if (k < 0.45) fern(wgeo, x, z, 0.9 + rnd() * 0.9, rnd);
+    else if (k < 0.75) bananaPlant(wgeo, x, z, 1.1 + rnd() * 0.9, rnd);
+    else bush(wgeo, x, z, 0.9 + rnd() * 1.2, rnd, rnd() < 0.35);
+  }
+  // 2) mellomlaget: lave palmer og små løvtrær i ulike høyder
+  for (let i = 0; i < 70; i++) {
+    const x = -105 + rnd() * 210;
+    const z = shoreZ(x) + 40 + rnd() * 22;
+    if (clear(x, z, 9)) continue;
+    colliders.push(palm(geo, wgeo, x, z, 3.2 + rnd() * 2.6, [(rnd() - 0.5) * 0.5, -0.3 - rnd() * 0.4], rnd));
+  }
+  for (let i = 0; i < 160; i++) {
+    const x = -125 + rnd() * 250;
+    const z = shoreZ(x) + 44 + rnd() * 30;
+    if (clear(x, z, 10) || z > 118 || G(x, z) < 0.5) continue;
+    jungleTree(geo, wgeo, x, z, rnd, 0.55 + rnd() * 0.45);
+  }
+  // 3) tett krone bakerst på kollene, og kjempetrær som stikker opp av den
+  for (let i = 0; i < 260; i++) {
+    const x = -160 + rnd() * 320;
+    let z = shoreZ(x) + 70 + rnd() * 48;
+    if (Math.abs(x) > 100) z = -40 + rnd() * 150;
+    if (z > 118 || G(x, z) < 2) continue;
+    jungleTree(geo, wgeo, x, z, rnd, 1.1 + rnd() * 0.6);
+  }
+  for (let i = 0; i < 45; i++) {
+    const x = -130 + rnd() * 260;
+    const z = shoreZ(x) + 75 + rnd() * 40;
+    if (z > 118 || G(x, z) < 3) continue;
+    jungleTree(geo, wgeo, x, z, rnd, 2.1 + rnd() * 0.6);
+    // høye palmer som titter opp over skogen
+    if (rnd() < 0.5) palm(geo, wgeo, x + 4, z + 3, 13 + rnd() * 5, [(rnd() - 0.5) * 0.4, -0.3], rnd);
+  }
+  for (let i = 0; i < 90; i++) {
+    const x = -110 + rnd() * 220;
+    const z = shoreZ(x) + 50 + rnd() * 40;
+    if (z > 118 || G(x, z) < 0.5) continue;
+    if (rnd() < 0.5) fern(wgeo, x, z, 1.2 + rnd(), rnd);
+    else bananaPlant(wgeo, x, z, 1.4 + rnd(), rnd);
   }
 
   // ---- busker, gress, blomster ----

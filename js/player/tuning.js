@@ -26,6 +26,9 @@ export const TUNE = {
     stableSpeed: 8, // over dette har man full kontroll
     lowSpeedControl: 0.55, // andel styring man har ved lav fart
     lowSpeedWobble: 0.35, // ufrivillig gir-vingling ved lav fart (rad/s)
+    trimBoost: 0.9, // ekstra fart når man trimmer langs bølgen høyt i veggen
+    stallDrag: 2.8, // brems (S): grunnbrems …
+    stallFace: 2.2, // … pluss ekstra i bratt vegg, så man kan stalle inn i tuben
   },
   board: {
     rideHeight: 0.22, // brettets høyde over vannflaten når man står
@@ -101,9 +104,80 @@ export const TUNE = {
   states: {
     lowSpeed: 3.2, // under: «lav fart»
     carveG: 0.55, // sideakselerasjon (i g) for «carve»
-    popupDur: 0.42, // hvor lang tid det tar å reise seg på brettet
+    popupDur: 0.5, // hvor lang tid det tar å reise seg på brettet (press → hopp → land)
     weightFreq: 2.2, // hvor mykt tilstandene blandes
   },
+  // Vektoverføring og forventning: kroppen gjør bevegelsen før brettet
+  weight: {
+    shift: 0.11, // hvor langt hoftene flyttes mot fremre/bakre fot (m)
+    downFace: 0.7, // vekt frem når man kjører nedover bølgen
+    turnBack: 0.8, // vekt bak i skarpe svinger (halen pivoterer)
+    pump: 0.6, // vekt frem og tilbake i takt med pumpingen
+    freq: 2.0, // fjær for vektoverføringen
+    zeta: 0.7,
+    leadFreq: 4.5, // skuldre/hode reagerer raskere på tastene enn brettet gjør …
+    leadZeta: 0.8,
+    leadTwist: 0.32, // … og roterer så mye inn i den kommende svingen
+    leadHead: 0.35, // hodet ser enda lenger inn i svingen
+  },
+  // Padling og venting i lineupen
+  paddle: {
+    strokeRate: 6.2, // armtak per sekund (radianer/s i fasen, to armer per periode)
+    surge: 0.65, // hvor mye fremdriften pulserer med hvert armtak (0 = jevn)
+    buoyFreq: 1.1, // flytefjær: lav = tungt og flytende, høy = følger flaten stramt
+    buoyZeta: 0.38,
+    noseLift: 0.55, // nesa løftes når en liten bølge kommer under den
+    lookAhead: 0.9, // hvor langt foran nesa vi måler stigende vann (m)
+    sitAfter: 1.6, // sekunder uten input før surferen setter seg opp og venter
+    sitTailSink: 0.22, // halen synker (nesa opp) når man sitter
+  },
+  // Duck dive
+  duck: {
+    cooldown: 1.75, // sekunder før du kan dykke igjen (teller fra du er oppe)
+    pushDur: 0.28, // armene presser nesa ned
+    sinkDur: 0.3, // kneet/foten presser halen ned, hele brettet går under
+    depth: 1.25, // hvor dypt brettet går (m)
+    noseDown: 0.62, // nesevinkel når man presser (rad)
+    surfaceNoseUp: 0.38, // nesa peker opp når man kommer opp igjen
+    glide: 1.4, // fremdrift under vann ved et godt dykk (m/s)
+  },
+  // Triks: grunnpoeng og krav. Poeng ganges med fart, høyde og combo
+  tricks: {
+    cutbackAngle: 2.0, // hvor mye (rad) man må snu tilbake mot curlen (~115°)
+    cutbackTime: 2.4, // … innen så mange sekunder
+    cutbackMinSpeed: 6,
+    cutback: 140,
+    snap: 110,
+    reentry: 220, // snap rett i leppa der den brekker
+    floaterMinSpeed: 5.5,
+    floater: 160, // + per sekund på toppen
+    floaterPerSec: 140,
+    floaterMax: 2.2, // lengre enn dette på skummet → du faller
+    tubeMinH: 1.5, // bølgen må være minst så høy (m) for tube
+    tubeDepth: 3.4, // hvor langt inn bak leppa man kan være før den lukker seg
+    tubePush: 2.4, // trykket i tuben som dytter deg ut igjen (m/s²)
+    tube: 200, // + per sekund i tuben
+    tubePerSec: 170,
+    air: 90,
+    airPerHalf: 110, // per 180°
+    grab: 100,
+  },
+};
+
+// Bølgesett: størrelser (H i meter) og hvor ofte de kommer.
+// Juster vekt for å få flere/færre av hver type. bomb = siste bølge i et stort sett.
+export const WAVE_TUNE = {
+  sets: [
+    { id: 'liten', name: 'Et lite sett', weight: 0.3, H: [1.0, 1.6], count: [3, 5] },
+    { id: 'middels', name: 'Et sett', weight: 0.45, H: [1.8, 2.9], count: [3, 5] },
+    { id: 'stor', name: 'Et stort sett', weight: 0.25, H: [3.0, 4.3], count: [3, 4] },
+  ],
+  bombChance: 0.4, // sjanse for at siste bølge i et middels/stort sett er en bomb
+  bombH: [4.4, 5.6],
+  smallBetween: [0.95, 1.4], // småbølge i pausene
+  breakDepth: [-22, -11.5], // bryter ved z ≈ a + b·H (større bølger bryter lenger ute)
+  peelVariation: 0.38, // hvor mye peelefarten varierer langs bølgen (seksjoner)
+  closeMult: 1.9, // hvor mye raskere den lukker seg helt inne ved land
 };
 
 // Forhåndsinnstillinger. Arcade: kvikk og tilgivende. Sim: tyngre, mer momentum, lettere å falle.

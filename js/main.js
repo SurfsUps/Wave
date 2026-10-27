@@ -11,9 +11,10 @@ import { Input } from './game/input.js';
 import { Hud, ShopUI } from './game/hud.js';
 import { Effects } from './game/effects.js';
 import { Audio } from './game/audio.js';
-import { OUTFITS } from './player/outfits.js';
+import { OUTFITS, HATS } from './player/outfits.js';
 import { BOARDS } from './player/boards.js';
-import { buildNpcs, dialogFor, UNLOCK_SCORE } from './world/npcs.js';
+import { TUNE } from './player/tuning.js';
+import { buildNpcs, dialogFor, REWARDS } from './world/npcs.js';
 
 const canvas = document.getElementById('game');
 const manual = new URLSearchParams(location.search).has('manual');
@@ -50,10 +51,13 @@ async function boot() {
   camera.yaw = player.yaw;
 
   // fremgang: surfepoeng og opplåste brett lagres i nettleseren
-  const progress = { score: 0, unlocked: [], announced: false, visits: {} };
+  const progress = { score: 0, unlocked: [], given: [], announced: false, visits: {} };
   try {
     Object.assign(progress, JSON.parse(localStorage.getItem('korallbukta-progress') || '{}'));
   } catch (e) { /* ignorer */ }
+  // eldre lagring: maisbrettet var den eneste gaven
+  if (!Array.isArray(progress.given)) progress.given = [];
+  if (progress.cornGiven && !progress.given.includes('mais')) progress.given.push('mais');
   player.score = progress.score || 0;
   const isUnlocked = (item) => !item.unlock || progress.unlocked.includes(item.id);
   let savedScore = player.score;
@@ -93,6 +97,10 @@ async function boot() {
     if (saved) {
       const b = BOARDS.find((x) => x.id === saved.board);
       if (!b || !isUnlocked(b)) saved.board = 'hibiskus';
+      const o = OUTFITS.find((x) => x.id === saved.outfit);
+      if (!o || !isUnlocked(o)) saved.outfit = 'korall';
+      const h = HATS.find((x) => x.id === saved.hat);
+      if (!h || !isUnlocked(h)) saved.hat = 'none';
       player.setLook(saved);
     }
   } catch (e) { /* ignorer */ }
@@ -103,20 +111,26 @@ async function boot() {
     const line = talk.lines[talk.i];
     const text = typeof line === 'string' ? line : line.text;
     if (line && line.give) {
-      unlock(line.give);
-      player.setLook({ board: line.give });
+      const rw = REWARDS.find((r) => r.id === line.give);
+      unlock(rw.id);
+      if (!progress.given.includes(rw.id)) progress.given.push(rw.id);
+      saveProgress();
+      player.setLook({ [rw.kind]: rw.id });
       saveLook();
       audio.great();
-      hud.toast('Du fikk maisbrettet!', 'Chicken Joes brett er ditt. Finnes også i Bølgehytta.', 'good', 3.5);
+      hud.toast(`Du fikk ${rw.name}!`, `Fra ${talk.npc.name}. Finnes også i Bølgehytta.`, 'good', 3.5);
     }
     hud.dialog({ name: talk.npc.name, color: talk.npc.color, text, last: talk.i === talk.lines.length - 1 });
     audio.click();
   }
+  // belønning denne figuren har klar til deg (nådd poenggrensen, men ikke hentet)
+  const giftFor = (id) => REWARDS.find((r) => r.from === id && player.score >= r.score && !progress.given.includes(r.id));
+  const nextReward = () => REWARDS.find((r) => player.score < r.score);
   world.onTalk = (n) => {
     const v = progress.visits[n.id] || 0;
-    const lines = dialogFor(n.id, { score: player.score, hasCorn: progress.unlocked.includes('mais') && progress.cornGiven }, v);
-    if (n.id === 'joe' && player.score >= UNLOCK_SCORE && !progress.cornGiven) progress.cornGiven = true;
-    else progress.visits[n.id] = v + 1;
+    const gift = giftFor(n.id);
+    const lines = dialogFor(n.id, { score: player.score, gift, next: nextReward() }, v);
+    if (!gift) progress.visits[n.id] = v + 1;
     saveProgress();
     talk = { npc: n, lines, i: 0 };
     n.isTalking = true;
@@ -138,9 +152,11 @@ async function boot() {
   // bølgehendelser: lyd og sprut
   let setTimer = 0;
   let bombTimer = 0;
+  let setName = 'Et sett';
   waves.on((type, w) => {
     if (type === 'set') {
       setTimer = 9;
+      setName = w ? w.name : 'Et sett';
     }
     if (type === 'bomb') bombTimer = 7;
     if (type === 'break') {
@@ -181,11 +197,11 @@ async function boot() {
       walk: ['På stranden', [[['W', 'A', 'S', 'D'], 'Gå'], [['Shift'], 'Løp'], [['E'], 'Butikk (ved disken)'], [['H'], 'Hjelp']]],
       shop: ['Bølgehytta', [[['A', 'D'], 'Roter karakteren'], [['Esc'], 'Lukk']]],
       talk: ['Prat', [[['E'], 'Fortsett'], [['Esc'], 'Lukk']]],
-      paddle: ['Padling', [[['W'], 'Padle frem'], [['S'], 'Padle bakover (sakte)'], [['A', 'D'], 'Snu brettet'], [['E'], 'Duck dive / drop in']]],
+      paddle: [player.sitK > 0.5 ? 'Venter i lineupen' : 'Padling', [[['W'], 'Padle frem'], [['S'], 'Padle bakover (sakte)'], [['A', 'D'], 'Snu brettet'], [['E'], 'Duck dive / drop in']]],
       duck: ['Duck dive', [[['W'], 'Hold fremdriften']]],
       washed: ['Oi!', [[['W'], 'Kom deg videre']]],
       popup: ['Drop in!', [[['A', 'D'], 'Sving langs bølgen']]],
-      surf: ['Surfing', [[['A', 'D'], 'Carve (myke svinger)'], [['W'], 'Pump for fart'], [['S'], 'Brems / stall'], [['Space'], 'Hopp (A/D spinn, W grab)'], [['F'], 'Snap på leppa'], [['Q'], 'Hold: hang ten']]],
+      surf: ['Surfing', [[['A', 'D'], 'Carve · sving tilbake = cutback'], [['W'], 'Pump for fart'], [['S'], 'Brems / stall (tube)'], [['Space'], 'Hopp (A/D spinn, W grab, S superman)'], [['F'], 'Snap / re-entry på leppa'], [['Q'], 'Hold: hang ten']]],
       wipeout: ['Wipeout', [[['…'], 'Kommer opp igjen']]],
     };
     const [mode, rows] = modes[s] || modes.walk;
@@ -208,9 +224,13 @@ async function boot() {
         ok: W.ok,
         perfect: W.perfect,
         range: [W.show, -0.6],
-        cls: isDuck ? 'duck' : 'dropin',
+        cls: (isDuck ? 'duck' : 'dropin') + (isDuck && player.duckCd > 0 ? ' cooling' : ''),
       });
     } else hud.timing(null);
+    // duck dive-cooldown: vises bare mens den lader (ringen fylles opp, så tones den ut)
+    const inWater = s === 'paddle' || s === 'duck' || s === 'washed';
+    const cdFrac = 1 - player.duckCd / TUNE.duck.cooldown;
+    hud.duckCooldown(clamp(cdFrac, 0, 1), inWater && (player.duckCd > 0 || s === 'duck'));
     // ride-statistikk
     if (s === 'surf' || s === 'popup') {
       const S = player.surf;
@@ -222,17 +242,20 @@ async function boot() {
       hud.setIndicator('En ekstra stor bølge er på vei!');
     } else if (setTimer > 0) {
       setTimer -= dt;
-      hud.setIndicator(player.z < -10 ? 'Et sett er på vei inn!' : 'Et sett ruller inn i bukta');
+      hud.setIndicator(player.z < -10 ? `${setName} er på vei inn!` : `${setName} ruller inn i bukta`);
     } else hud.setIndicator(null);
     if (setTimer > 0) setTimer -= bombTimer > 0 ? dt : 0;
     hud.score(player.score);
-    // lagre poeng og lås opp maisbrettet ved 2000
+    // lagre poeng og si fra når en ny belønning venter ved bålet
     if (Math.round(player.score) !== savedScore) {
       savedScore = Math.round(player.score);
-      if (player.score >= UNLOCK_SCORE && !progress.unlocked.includes('mais')) {
-        unlock('mais');
-        hud.toast('2000 surfepoeng!', 'Chicken Joe har noe til deg ved bålet 🌽', 'good', 4.5);
-        audio.great();
+      for (const r of REWARDS) {
+        if (player.score >= r.score && !progress.unlocked.includes(r.id)) {
+          unlock(r.id);
+          const who = r.from === 'joe' ? 'Chicken Joe' : 'Cody';
+          hud.toast(`${r.score} surfepoeng!`, `${who} har noe til deg ved bålet ${r.from === 'joe' ? '🌽' : '🐧'}`, 'good', 4.5);
+          audio.great();
+        }
       }
       saveProgress();
     }
