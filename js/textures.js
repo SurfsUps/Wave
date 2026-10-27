@@ -128,6 +128,47 @@ export const PRINTS = {
     ctx.fillStyle = '#2d3038';
     ctx.fillRect(0, 0, w, h * 0.2);
   },
+  ember(ctx, w, h) {
+    ctx.fillStyle = '#1f2a33';
+    ctx.fillRect(0, 0, w, h);
+    const r = rnd(9);
+    // flammer nedenfra og glør som flyr
+    for (let i = 0; i < 9; i++) {
+      const x = (i / 8) * w, fh = h * (0.25 + r() * 0.2);
+      const g = ctx.createLinearGradient(0, h, 0, h - fh);
+      g.addColorStop(0, '#ff6a2a');
+      g.addColorStop(1, 'rgba(255,200,60,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(x - 22, h);
+      ctx.quadraticCurveTo(x - 6, h - fh * 0.5, x + (r() - 0.5) * 10, h - fh);
+      ctx.quadraticCurveTo(x + 8, h - fh * 0.5, x + 22, h);
+      ctx.fill();
+    }
+    for (let i = 0; i < 40; i++) {
+      ctx.fillStyle = i % 2 ? '#ffb347' : '#ff7b2a';
+      ctx.fillRect(r() * w, r() * h * 0.75, 3, 3);
+    }
+  },
+  legend(ctx, w, h) {
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, '#f2c94c');
+    g.addColorStop(1, '#c98a1e');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#ff6f59';
+    ctx.fillRect(0, h * 0.34, w, h * 0.09);
+    ctx.fillStyle = '#fff6d6';
+    ctx.fillRect(0, h * 0.45, w, h * 0.025);
+    // bølgemotiv
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+    ctx.lineWidth = 5;
+    for (let k = 0; k < 2; k++) {
+      ctx.beginPath();
+      for (let x = 0; x <= w; x += 8) ctx.lineTo(x, h * (0.68 + k * 0.1) + Math.sin(x * 0.06) * 8);
+      ctx.stroke();
+    }
+  },
   palmTee(ctx, w, h) {
     ctx.fillStyle = '#f7f1e3';
     ctx.fillRect(0, 0, w, h);

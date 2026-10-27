@@ -1,5 +1,5 @@
 // Stilisert surfer bygd av enkle former, med ledd for prosedyreanimasjon.
-import { Node } from '../engine/math.js';
+import { Node, lerp, smoothstep } from '../engine/math.js';
 import { Mesh, makeMaterial } from '../engine/renderer.js';
 import { Geo, box, cylinder, sphere, lathe, hex } from '../engine/geometry.js';
 import { OUTFITS, HATS, GLASSES, printCanvas, shortsCanvas } from './outfits.js';
@@ -198,6 +198,24 @@ export class Character {
       this.attach('neck', this.mesh('strawBrim', () => cylinder(0.33, 0.34, 0.012, 24).tf(0, 0.215, 0, -0.08, 0, 0)), brim);
       this.attach('neck', this.mesh('strawCrown', () => lathe([[0.15, 0.2], [0.152, 0.3], [0.13, 0.35], [0, 0.36]], 20)), col);
       this.attach('neck', this.mesh('strawBand', () => cylinder(0.153, 0.153, 0.035, 20, [1, 1, 1], false).tf(0, 0.225, 0)), makeMaterial({ color: hex(hat.band), vcol: false }));
+    } else if (hat.id === 'lei') {
+      // blomsterkrans: blader og blomster i en ring rundt hodet
+      this.attach('neck', this.mesh('lei', () => {
+        const g = new Geo();
+        const cols = ['#ff5e7a', '#ffd84d', '#ffffff', '#ff9f45', '#ff5e7a', '#f7f0ff'];
+        for (let i = 0; i < 14; i++) {
+          const a = (i / 14) * Math.PI * 2;
+          const x = Math.sin(a) * 0.142, z = Math.cos(a) * 0.135 - 0.005, y = 0.235 + Math.cos(a) * 0.02;
+          g.add(sphere(0.026, 6, 4, '#2f9a4a').tf(Math.sin(a + 0.22) * 0.15, y - 0.012, Math.cos(a + 0.22) * 0.143, 0, a, 0, 1.6, 0.5, 0.8));
+          const c = cols[i % cols.length];
+          for (let k = 0; k < 5; k++) {
+            const b = (k / 5) * Math.PI * 2;
+            g.add(sphere(0.017, 6, 4, c).tf(x + Math.cos(b) * 0.018 * Math.cos(a), y + Math.sin(b) * 0.018, z - Math.cos(b) * 0.018 * Math.sin(a), 0, 0, 0, 1, 1, 0.6));
+          }
+          g.add(sphere(0.009, 5, 4, '#ffcf3a').tf(x * 1.08, y, z * 1.08));
+        }
+        return g;
+      }), makeMaterial({ spec: 0.35 }));
     } else if (hat.id === 'visor') {
       this.attach('neck', this.mesh('visorBand', () => cylinder(0.138, 0.138, 0.04, 20, [1, 1, 1], false).tf(0, 0.235, 0)), makeMaterial({ color: hex(hat.color), vcol: false, double: true }));
       this.attach('neck', this.mesh('visorBrim', () => cylinder(0.12, 0.12, 0.01, 16).tf(0, 0, 0, 0, 0, 0, 1, 1, 0.85).tf(0, 0.24, 0.155, -0.15, 0, 0)), brim);
@@ -221,16 +239,24 @@ export class Character {
 export const Poses = {
   idle(p, t) {
     p.fill(0);
-    const b = Math.sin(t * 2.0) * 0.015;
-    setJ(p, 'torso', 0.03 + b, 0, 0);
-    setJ(p, 'neck', -0.03 - b, Math.sin(t * 0.5) * 0.25, 0);
+    const b = Math.sin(t * 2.0) * 0.015; // pust
+    // vekten flyttes rolig fra fot til fot: hoftene glir til siden, standbeinet strekkes, det andre kneet bøyes
+    const w = Math.sin(t * 0.42) * 0.8 + Math.sin(t * 0.17) * 0.2;
+    const wl = Math.max(0, w), wr = Math.max(0, -w);
+    setJ(p, 'hips', 0, 0, -w * 0.05);
+    setJ(p, 'torso', 0.03 + b, 0, w * 0.06);
+    setJ(p, 'neck', -0.03 - b, Math.sin(t * 0.5) * 0.25, -w * 0.02);
     setJ(p, 'shL', 0.05, 0, 0.12 + b);
     setJ(p, 'shR', 0.05, 0, -0.12 - b);
     setJ(p, 'elL', -0.15, 0, 0);
     setJ(p, 'elR', -0.15, 0, 0);
-    setJ(p, 'hipL', 0, 0, 0.04);
-    setJ(p, 'hipR', 0, 0, -0.04);
-    setOffset(p, 0, -0.005 + b * 0.3, 0);
+    setJ(p, 'hipL', -wr * 0.08, 0, 0.04 + w * 0.05);
+    setJ(p, 'hipR', -wl * 0.08, 0, -0.04 + w * 0.05);
+    setJ(p, 'knL', wr * 0.2, 0, 0);
+    setJ(p, 'knR', wl * 0.2, 0, 0);
+    setJ(p, 'ftL', -wr * 0.1, 0, 0);
+    setJ(p, 'ftR', -wl * 0.1, 0, 0);
+    setOffset(p, w * 0.03, -0.005 + b * 0.3 - Math.abs(w) * 0.008, 0);
     return p;
   },
   // fase i radianer, fart 0..1 (gå→løp). Sving-fasen bøyer kneet, hælen treffer først,
@@ -274,25 +300,57 @@ export const Poses = {
     return p;
   },
   // liggende padling (karakteren roteres liggende av spilleren)
+  // Armtak: hånda går inn foran skulderen, trekker under brettet (strak arm, bøyd albue midt i taket)
+  // og føres frem over vann med bøyd albue. Hodet og brystet er løftet, bena samlet med litt spark.
   paddle(p, ph, power, head = 0) {
     p.fill(0);
     const pl = ph, pr = ph + Math.PI;
-    const arm = (q) => -Math.PI + (((q % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2));
     const amp = 0.35 + power * 0.65;
-    const restL = -0.35, restR = -0.35;
-    const aL = restL + (arm(pl) - restL) * amp, aR = restR + (arm(pr) - restR) * amp;
-    setJ(p, 'shL', aL, 0, 0.35 + Math.sin(pl) * 0.12);
-    setJ(p, 'shR', aR, 0, -0.35 - Math.sin(pr) * 0.12);
-    setJ(p, 'elL', -0.25 - Math.max(0, Math.sin(pl)) * 0.6 * amp, 0, 0);
-    setJ(p, 'elR', -0.25 - Math.max(0, Math.sin(pr)) * 0.6 * amp, 0, 0);
-    setJ(p, 'neck', -0.75 - head, 0, 0);
-    setJ(p, 'torso', -0.22 - head * 0.3, Math.sin(ph) * 0.06 * power, 0);
-    setJ(p, 'hipL', 0.05, 0, 0.07);
-    setJ(p, 'hipR', 0.05, 0, -0.07);
-    setJ(p, 'knL', 0.35 + Math.sin(ph * 2) * 0.12, 0, 0);
-    setJ(p, 'knR', 0.35 - Math.sin(ph * 2) * 0.12, 0, 0);
-    setJ(p, 'ftL', 0.6, 0, 0);
-    setJ(p, 'ftR', 0.6, 0, 0);
+    const arm = (q, side) => {
+      const c = ((q % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2); // 0..2π
+      const pull = c < Math.PI; // første halvdel: trekk under vann
+      const k = pull ? c / Math.PI : (c - Math.PI) / Math.PI;
+      // skulder (x): -π = strak frem mot nesa, -π/2 = rett ned i vannet, 0 = langs siden, +π/2 = opp i lufta.
+      // Trekket går frem → ned → bak, tilbakeføringen over vann: bak → opp → frem.
+      let a = pull ? lerp(-2.9, 0.25, k) : lerp(0.25, Math.PI * 2 - 2.9, k);
+      if (a > Math.PI) a -= Math.PI * 2;
+      const el = -0.35 - Math.sin(k * Math.PI) * (pull ? 0.55 : 1.1);
+      const out = 0.3 + Math.sin(k * Math.PI) * (pull ? 0.12 : 0.35);
+      // svake tak: kortere trekk, men full rekkevidde frem (der vinkelen «går rundt»), så armen aldri hopper
+      const rest = -0.35, wEff = amp + (1 - amp) * smoothstep(2.4, Math.PI, Math.abs(a));
+      setJ(p, 'sh' + side, rest + (a - rest) * wEff, 0, (side === 'L' ? 1 : -1) * lerp(0.35, out, amp));
+      setJ(p, 'el' + side, lerp(-0.25, el, amp), 0, 0);
+      return pull ? Math.sin(k * Math.PI) : 0;
+    };
+    const fL = arm(pl, 'L'), fR = arm(pr, 'R');
+    setJ(p, 'neck', -0.8 - head, 0, 0);
+    // brystet løftes, og overkroppen ruller litt mot armen som trekker
+    setJ(p, 'torso', -0.24 - head * 0.4 - power * 0.06, (fL - fR) * 0.08 * power, (fR - fL) * 0.05 * power);
+    setJ(p, 'hipL', 0.05, 0, 0.05);
+    setJ(p, 'hipR', 0.05, 0, -0.05);
+    setJ(p, 'knL', 0.3 + Math.sin(ph * 2) * 0.1 * power, 0, 0);
+    setJ(p, 'knR', 0.3 - Math.sin(ph * 2) * 0.1 * power, 0, 0);
+    setJ(p, 'ftL', 0.65, 0, 0);
+    setJ(p, 'ftR', 0.65, 0, 0);
+    return p;
+  },
+  // sitter skrevs på brettet og venter: beina henger i vannet og padler sakte, armene hviler på lårene
+  sit(p, t, turn = 0) {
+    p.fill(0);
+    const kick = Math.sin(t * 1.3), look = Math.sin(t * 0.33) * 0.5 + Math.sin(t * 0.13) * 0.3;
+    setJ(p, 'hipL', -1.25, 0, 0.55);
+    setJ(p, 'hipR', -1.25, 0, -0.55);
+    setJ(p, 'knL', 1.25 + kick * 0.25 + turn * 0.3, 0, 0);
+    setJ(p, 'knR', 1.25 - kick * 0.25 - turn * 0.3, 0, 0);
+    setJ(p, 'ftL', 0.3, 0, 0);
+    setJ(p, 'ftR', 0.3, 0, 0);
+    setJ(p, 'torso', 0.12 + Math.sin(t * 2) * 0.015, 0, Math.sin(t * 0.7) * 0.03);
+    setJ(p, 'neck', -0.08, look * 0.9, 0);
+    setJ(p, 'shL', -0.5, 0, 0.18);
+    setJ(p, 'shR', -0.5, 0, -0.18);
+    setJ(p, 'elL', -0.9, 0, 0);
+    setJ(p, 'elR', -0.9, 0, 0);
+    setOffset(p, 0, 0, 0);
     return p;
   },
   // stående på brettet, sidelengs (regular: venstre fot frem). Venstre arm leder mot nesa,
@@ -317,7 +375,8 @@ export const Poses = {
     // Brettet ruller allerede inn i svingen, så kroppen trenger bare litt ekstra bøy i forhold til brettet.
     // Bekkenet vippes litt, overkroppen bøyer seg inn og skuldrene roterer dit man skal.
     setJ(p, 'hips', c * 0.08 + toe * 0.05, 0, 0);
-    setJ(p, 'torso', 0.1 + c * 0.24 + toe * 0.14 - heel * 0.12 + bal * 0.1, 0.32 + lean * (o.twist ?? 0.38), lean * 0.08);
+    const wgt = o.weight || 0;
+    setJ(p, 'torso', 0.1 + c * 0.24 + toe * 0.14 - heel * 0.12 + bal * 0.1 + wgt * 0.6, 0.32 + lean * (o.twist ?? 0.38) + (o.leadTwist || 0), lean * 0.08);
     // hodet: ser mot nesa og inn i svingen, holdes delvis vatter når brettet heller
     const lv = o.level || [0, 0];
     setJ(p, 'neck', -0.2 - c * 0.2 - toe * 0.25 + heel * 0.08 - lv[0], 0.55 + lean * 0.12 + (o.headTurn || 0), lv[1]);
@@ -337,7 +396,8 @@ export const Poses = {
     setJ(p, 'elL', -0.4 - heel * 0.35 - wob * 0.2 - bal * 0.2, 0, 0);
     setJ(p, 'elR', -0.55 - heel * 0.45 + toe * 0.25 - bal * 0.2, 0, 0);
     // hoftene senkes ved knebøy og flyttes mot tå/hæl-railen i svinger
-    setOffset(p, 0, o.hipDrop !== undefined ? -o.hipDrop : -c * 0.32 - toe * 0.04, o.hipShift || 0);
+    // hoftene senkes ved knebøy, flyttes mot tå/hæl-railen i svinger og mot fremre/bakre fot med vekten
+    setOffset(p, wgt, o.hipDrop !== undefined ? -o.hipDrop : -c * 0.32 - toe * 0.04, o.hipShift || 0);
     const tr = o.trick, k = o.trickK || 0;
     if (tr && k > 0) Poses.trick(p, tr, k, t);
     return p;
@@ -385,6 +445,49 @@ export const Poses = {
       setJ(q, 'elL', -0.15, 0, 0);
       setJ(q, 'elR', -0.15, 0, 0);
       setOffset(q, 0, -0.08, 0);
+    } else if (tr === 'cutback') {
+      // cutback: lav, vekten bak, skuldrene roterer tilbake mot curlen og ledende arm peker dit
+      setJ(q, 'torso', 0.55, -0.55, 0.12);
+      setJ(q, 'neck', -0.3, -0.45, 0);
+      setJ(q, 'shL', -0.9, 0.2, 1.25);
+      setJ(q, 'shR', -0.2, -0.1, -1.0);
+      setJ(q, 'elL', -0.25, 0, 0);
+      setJ(q, 'elR', -0.7, 0, 0);
+      setJ(q, 'hips', 0.1, -0.25, 0);
+      setOffset(q, -0.08, -0.4, 0.06);
+    } else if (tr === 'floater') {
+      // floater: bred og lav på toppen av skummet, armene ut som vinger for balansen
+      setJ(q, 'torso', 0.45, 0.25, 0);
+      setJ(q, 'neck', -0.25, 0.75, 0);
+      setJ(q, 'shL', -0.3, 0.1, 1.45 + Math.sin(t * 5) * 0.12);
+      setJ(q, 'shR', -0.3, -0.1, -1.45 - Math.sin(t * 5.6) * 0.12);
+      setJ(q, 'elL', -0.25, 0, 0);
+      setJ(q, 'elR', -0.25, 0, 0);
+      setOffset(q, 0.05, -0.36, 0);
+    } else if (tr === 'tube') {
+      // tube: helt sammenkrøpet, bakre hånd sleper i veggen, blikket mot utgangen
+      setJ(q, 'torso', 0.85, 0.15, 0.1);
+      setJ(q, 'neck', -0.55, 0.85, 0);
+      setJ(q, 'shL', -1.2, 0.1, 0.7);
+      setJ(q, 'shR', 0.3, 0, -0.9 - Math.sin(t * 3) * 0.06);
+      setJ(q, 'elL', -0.8, 0, 0);
+      setJ(q, 'elR', -0.25, 0, 0);
+      setOffset(q, -0.04, -0.5, 0);
+    } else if (tr === 'superman') {
+      // superman: holder brettet med begge hender og strekker bena bak i lufta
+      setJ(q, 'torso', 1.2, 0.25, 0);
+      setJ(q, 'neck', -0.9, 0.5, 0);
+      setJ(q, 'shL', -1.4, 0, 0.2);
+      setJ(q, 'shR', -1.4, 0, -0.2);
+      setJ(q, 'elL', -0.1, 0, 0);
+      setJ(q, 'elR', -0.1, 0, 0);
+      setJ(q, 'hipL', 0.9, 0, 0.3);
+      setJ(q, 'hipR', 0.9, 0, -0.3);
+      setJ(q, 'knL', 0.2, 0, 0);
+      setJ(q, 'knR', 0.2, 0, 0);
+      setJ(q, 'ftL', 0.5, 0, 0);
+      setJ(q, 'ftR', 0.5, 0, 0);
+      setOffset(q, -0.1, -0.2, 0);
     } else if (tr === 'snap') {
       // eksplosiv vridning: armene kastes rundt
       setJ(q, 'torso', 0.55, -0.35, 0);
@@ -399,15 +502,25 @@ export const Poses = {
     blendPose(p, p, q, k);
     return p;
   },
-  duck(p, k) {
+  // duck dive: push = armene strekkes og presser nesa ned, sink = kneet presser halen ned og det andre
+  // beinet sparkes opp, rise = nesa opp og kroppen følger oppdriften opp igjen
+  duck(p, push, sink = 0, rise = 0, t = 0) {
     Poses.paddle(p, 0.6, 0, 0);
-    setJ(p, 'shL', -1.5 + 0.3 * k, 0, 0.3);
-    setJ(p, 'shR', -1.5 + 0.3 * k, 0, -0.3);
-    setJ(p, 'elL', -0.5, 0, 0);
-    setJ(p, 'elR', -0.5, 0, 0);
-    setJ(p, 'neck', -0.2, 0, 0);
-    setJ(p, 'knL', 0.9 * k, 0, 0);
-    setJ(p, 'knR', 0.2, 0, 0);
+    const hold = 1 - rise;
+    // hendene på railene ved brystet → strake armer som presser brettet ned
+    setJ(p, 'shL', lerp(-1.25, -1.75, push), 0, 0.32);
+    setJ(p, 'shR', lerp(-1.25, -1.75, push), 0, -0.32);
+    setJ(p, 'elL', lerp(-1.4, -0.15, push) * hold + -0.5 * rise, 0, 0);
+    setJ(p, 'elR', lerp(-1.4, -0.15, push) * hold + -0.5 * rise, 0, 0);
+    // brystet løftes over armene mens man presser, så legger man seg tett ned på brettet under vann
+    setJ(p, 'torso', lerp(-0.2, -0.55, push) * (1 - sink * 0.7) * hold, 0, 0);
+    setJ(p, 'neck', lerp(-0.6, -0.1, sink) - rise * 0.6, 0, 0);
+    // kneet på halen, det andre beinet strekkes opp og bak som motvekt
+    setJ(p, 'hipL', -1.1 * sink * hold, 0, 0.1);
+    setJ(p, 'knL', (0.4 + 1.5 * sink) * hold + 0.3 * rise, 0, 0);
+    setJ(p, 'hipR', 0.45 * sink * hold + Math.sin(t * 5) * 0.05 * sink, 0, -0.08);
+    setJ(p, 'knR', 0.15 + 0.2 * rise, 0, 0);
+    setJ(p, 'ftR', 0.9, 0, 0);
     return p;
   },
   tumble(p, t) {

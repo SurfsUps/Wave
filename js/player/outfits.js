@@ -9,6 +9,8 @@ export const OUTFITS = [
   { id: 'retro', name: 'Retro 70', desc: 'Stripete singlet og røde shorts. Rett fra et gammelt surfemagasin.', print: 'retroTank', sleeves: 'none', shorts: 'red', legs: 'skin', hat: 'visor', glasses: 'mirror' },
   { id: 'natt', name: 'Nattdykker', desc: 'Svart våtdrakt med neondetaljer og bakvendt caps.', print: 'nightSuit', sleeves: 'long', shorts: 'suit', legs: 'suit', suitColor: '#16181d', hat: 'capBack', glasses: 'sport' },
   { id: 'palme', name: 'Palme-tee', desc: 'Myk t-skjorte med palme i solnedgang og turkise shorts.', print: 'palmTee', sleeves: 'short', shorts: 'teal', legs: 'skin', hat: 'cap', glasses: 'none' },
+  { id: 'balkveld', name: 'Bålkveld', desc: 'Langermet rash med glør og flammer. Fra Cody, for de som blir på stranden til sola går ned.', print: 'ember', sleeves: 'long', shorts: 'black', legs: 'skin', hat: 'none', glasses: 'none', unlock: 5000, giver: 'Cody' },
+  { id: 'legende', name: 'Korallbuktas legende', desc: 'Gull og korall. Bare for de som har surfet bukta på ordentlig.', print: 'legend', sleeves: 'short', shorts: 'red', legs: 'skin', hat: 'lei', glasses: 'mirror', unlock: 10000, giver: 'Cody' },
 ];
 
 export const HATS = [
@@ -18,6 +20,7 @@ export const HATS = [
   { id: 'bucket', name: 'Bøttehatt', desc: 'Myk bøttehatt i solgult.', color: '#f2c94c', brim: '#f2c94c', band: '#ff6f59' },
   { id: 'straw', name: 'Stråhatt', desc: 'Vid stråhatt med rødt bånd. Skygge deluxe.', color: '#e7c47e', brim: '#dcb46a', band: '#d8433a' },
   { id: 'visor', name: 'Solskjerm', desc: 'Hvit visor med turkis skygge.', color: '#ffffff', brim: '#13a7b5' },
+  { id: 'lei', name: 'Blomsterkrans', desc: 'Chicken Joes egen blomsterkrans. Hibiskus og frangipani, lukter som sommer.', color: '#ff5e7a', brim: '#2f9a4a', unlock: 4000, giver: 'Chicken Joe' },
 ];
 
 export const GLASSES = [
@@ -101,6 +104,18 @@ export function accessoryIcon(kind, item, size = 120) {
     ctx.moveTo(-18, 12);
     ctx.lineTo(18, -24);
     ctx.stroke();
+    return c;
+  }
+  if (kind === 'hat' && item.id === 'lei') {
+    // krans av blomster
+    const cols = ['#ff5e7a', '#ffd84d', '#ffffff', '#ff9f45'];
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      ctx.fillStyle = i % 3 === 0 ? item.brim : cols[i % cols.length];
+      ctx.beginPath();
+      ctx.arc(Math.cos(a) * 34, Math.sin(a) * 12, 9, 0, Math.PI * 2);
+      ctx.fill();
+    }
     return c;
   }
   if (kind === 'hat') {

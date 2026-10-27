@@ -44,7 +44,21 @@ export const BOARDS = [
     L: 2.45, W: 0.56, T: 0.075, noseP: 1.25, tailW: 0.3, tail: 'pin', wide: 0.42, fins: 1, rocker: 0.11,
     paint: { corn: true },
     stats: { paddle: 0.85, speed: 0.92, turn: 0.86 },
-    unlock: 2000, trickBonus: 1.25,
+    unlock: 2000, trickBonus: 1.25, giver: 'Chicken Joe',
+  },
+  {
+    id: 'isflak', name: "Codys Isflak 6'2", desc: 'Codys eget brett: kvikt, lett og iskaldt blått. Svinger nesten av seg selv.',
+    L: 1.88, W: 0.5, T: 0.062, noseP: 0.85, tailW: 0.4, tail: 'squash', wide: 0.45, fins: 3, rocker: 0.13,
+    paint: { gradient: ['#f6fcff', '#bfe6f7', '#5bb6e0'], stripes: ['#1d2026', '#f2d64b', '#1d2026'], rails: '#1d2026', stringer: '#ffffff' },
+    stats: { paddle: 0.6, speed: 0.88, turn: 0.98 },
+    unlock: 3000, trickBonus: 1.15, giver: 'Cody',
+  },
+  {
+    id: 'gull', name: "Gullbølgen 6'8", desc: 'Legendebrettet fra bålet. Glir som smør, holder i de største bølgene og gir ekstra triks-poeng.',
+    L: 2.05, W: 0.52, T: 0.066, noseP: 0.8, tailW: 0.32, tail: 'round', wide: 0.46, fins: 3, rocker: 0.12,
+    paint: { gradient: ['#fff3b0', '#f2c94c', '#c98a1e'], palm: '#fff8dc', rails: '#8a5a12', stringer: '#fffbe8' },
+    stats: { paddle: 0.8, speed: 1.0, turn: 0.9 },
+    unlock: 7000, trickBonus: 1.35, giver: 'Chicken Joe',
   },
 ];
 

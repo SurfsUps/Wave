@@ -1,6 +1,7 @@
 // Bølgesystem: dønninger som kommer i sett, bygger seg opp, krøller, bryter og peeler mot land.
 // Den samme høydefunksjonen finnes i JS (fysikk) og GLSL (water.js) – hold dem i synk.
 import { smoothstep, lerp, clamp, mulberry32 } from '../engine/math.js';
+import { WAVE_TUNE } from '../player/tuning.js';
 
 export const MAXW = 8;
 export const KC = 0.0012; // krumning på bølgetoppen (følger bukta)
@@ -30,7 +31,7 @@ void waveEval(int i, vec2 p, float depth, out float h, out float b, out float d,
   H = A.y * lat * edge * smoothstep(0.0, 2.2, depth);
   float crest = A.x - KC * p.x * p.x;
   d = p.y - crest;
-  Lf = mix(10.0, 2.6, A.w);
+  Lf = mix(10.0, 2.6, A.w) * clamp(0.7 + A.y * 0.15, 0.85, 1.6);
   if (d >= 0.0) hu = exp(-(d / Lf) * (d / Lf)) - 0.1 * exp(-pow((d - 2.2 * Lf) / Lf, 2.0));
   else hu = exp(-(d / 16.0) * (d / 16.0));
   inside = 1000.0;
@@ -40,7 +41,8 @@ void waveEval(int i, vec2 p, float depth, out float h, out float b, out float d,
     b = smoothstep(2.0, -3.0, inside);
   }
   float hb = d >= 0.0 ? exp(-(d / 2.4) * (d / 2.4)) : exp(-(d / 8.0) * (d / 8.0));
-  hb *= B.w;
+  // hvitvannet ruller: små, vandrende pukler i skumveggen
+  hb *= B.w * (1.0 + 0.09 * sin(0.55 * p.x + 2.6 * uWaveTime + d * 0.9) * smoothstep(-6.0, 0.0, d));
   h = H * mix(hu, hb, b);
 }
 
@@ -71,12 +73,12 @@ export class WaveSystem {
     this.uB = new Float32Array(MAXW * 4);
     this.uC = new Float32Array(MAXW * 4);
     this.idc = 0;
-    this.bombChance = 0.3;
     this.setAnnounce = 0;
     // forhåndsfyll så det er liv i bukta fra start
-    this.spawn(-70, 2.0, true);
-    this.spawn(-150, 3.4, true);
-    this.spawn(-225, 2.1, true);
+    this.curSet = WAVE_TUNE.sets[1];
+    this.spawn(-70, 2.0, true, this.curSet);
+    this.spawn(-150, 3.4, true, WAVE_TUNE.sets[2]);
+    this.spawn(-225, 2.1, true, this.curSet);
     this.setLeft = 1;
     this.nextSpawn = 10;
   }
@@ -86,49 +88,66 @@ export class WaveSystem {
     if (x < -200 || x > 200 || z < -280 || z > 120) return 30;
     return -this.hf.sample(x, z);
   }
-  spawn(zc = -235, H0 = null, big = true) {
-    const r = this.rnd;
+  // Lager en ny dønning. size: { H: [min, maks] } fra et sett, eller null for en liten mellombølge.
+  spawn(zc = -235, H0 = null, big = true, size = null, bomb = false) {
+    const r = this.rnd, WT = WAVE_TUNE;
     if (this.waves.length >= MAXW) return null;
     // Bølgetype: en topp som deler seg (A-ramme), eller en som bare peeler én vei.
     // dir = 0: begge veier, -1: bare mot -x, +1: bare mot +x
     const roll = r();
     const dir = roll < 0.36 ? 0 : roll < 0.68 ? 1 : -1;
-    // Av og til kommer en ekstra stor bølge (bomb)
-    const bomb = big && H0 == null && r() < this.bombChance;
     let peak;
     if (dir === 0) peak = (r() - 0.5) * 70;
     else peak = -dir * (22 + r() * 40); // starter på den ene siden og peeler over bukta
     const fast = 8 + r() * 2.5, slow = 5.2 + r() * 1.6;
     const leftFast = r() < 0.5;
+    const pick = (a) => a[0] + r() * (a[1] - a[0]);
+    const H = H0 ?? (bomb ? pick(WT.bombH) : size ? pick(size.H) : pick(WT.smallBetween));
+    // større bølger kjenner bunnen tidligere og bryter lenger ute
+    const breakZ = clamp(WT.breakDepth[0] + WT.breakDepth[1] * H + (r() - 0.5) * 8, -82, -28);
     const w = {
       id: ++this.idc,
       zc,
-      H0: H0 ?? (bomb ? 3.3 + r() * 1.1 : big ? 1.9 + r() * 1.1 : 0.95 + r() * 0.35),
+      H0: H,
       peak,
       dir,
-      latW: dir === 0 ? 34 + r() * 14 : 55 + r() * 20,
-      breakZ: bomb ? -70 + (r() - 0.5) * 8 : big ? -56 + (r() - 0.5) * 12 : -34 + (r() - 0.5) * 6,
+      latW: (dir === 0 ? 34 + r() * 14 : 55 + r() * 20) * (0.85 + H * 0.08),
+      breakZ,
       closeZ: -14,
       peelL: dir === 1 ? 0 : dir === -1 ? fast * 0.9 : leftFast ? fast : slow,
       peelR: dir === -1 ? 0 : dir === 1 ? fast * 0.9 : leftFast ? slow : fast,
+      // seksjoner: peelefarten varierer langs bølgen (rev og sandbanker)
+      secPh: r() * 6.28, secF: 0.06 + r() * 0.05,
       wL: 0, wR: 0,
       started: false, breakT: 0,
       c: 8, steep: 0, Hbase: 0, bore: 0.6, lip: 0,
-      big,
+      big: !!(size || bomb) && big,
       bomb,
+      size: bomb ? 'bomb' : size ? size.id : 'liten',
     };
     if (bomb) this.emit('bomb', w);
     this.update1(w, 0);
     this.waves.push(w);
     return w;
   }
+  // peelefart med seksjoner: noen partier brekker raskere (kan lukke seg foran deg), andre saktere
+  peelAt(w, x, base) {
+    return base * (1 + WAVE_TUNE.peelVariation * Math.sin(x * w.secF + w.secPh));
+  }
+  closeMult(w, zc = w.zc) {
+    // lukker seg gradvis fortere jo nærmere land den kommer, ikke alt på en gang
+    return lerp(1, WAVE_TUNE.closeMult, smoothstep(w.closeZ - 12, w.closeZ + 8, zc));
+  }
   update1(w, dt) {
     w.c = lerp(5.6, 8.6, smoothstep(-30, -180, w.zc));
     w.zc += w.c * dt;
+    // dønningen bygger seg opp over grunnere vann …
     const grow = smoothstep(-240, w.breakZ - 5, w.zc);
     w.Hbase = w.H0 * (0.22 + 0.78 * grow);
+    // … og blir brattere, mest helt på slutten før den brekker
     const crestPeak = w.zc - KC * w.peak * w.peak;
-    w.steep = smoothstep(w.breakZ - 55, w.breakZ + 2, crestPeak);
+    const st = smoothstep(w.breakZ - 55, w.breakZ + 2, crestPeak);
+    w.steep = st * st * (1.6 - 0.6 * st);
     if (!w.started && crestPeak >= w.breakZ) {
       w.started = true;
       w.breakT = 0;
@@ -136,13 +155,16 @@ export class WaveSystem {
     }
     if (w.started) {
       w.breakT += dt;
-      const closing = w.zc > w.closeZ;
+      const closing = w.zc > w.closeZ - 12;
       const ramp = smoothstep(0, 0.8, w.breakT) * 0.7 + 0.3;
-      const mult = (closing ? 3.5 : 1) * ramp;
+      const mult = this.closeMult(w) * ramp;
       // siden som ikke peeler lukker seg først helt inne ved land
-      w.wL += (w.peelL || (closing ? 2.6 : 0)) * mult * dt;
-      w.wR += (w.peelR || (closing ? 2.6 : 0)) * mult * dt;
-      w.bore = 0.62 * Math.exp(-w.breakT * 0.03);
+      const pl = w.peelL ? this.peelAt(w, w.peak - w.wL, w.peelL) : closing ? 2.6 * smoothstep(w.closeZ - 12, w.closeZ + 4, w.zc) : 0;
+      const pr = w.peelR ? this.peelAt(w, w.peak + w.wR, w.peelR) : closing ? 2.6 * smoothstep(w.closeZ - 12, w.closeZ + 4, w.zc) : 0;
+      w.wL += pl * mult * dt;
+      w.wR += pr * mult * dt;
+      // hvitvannet er høyest rett etter at leppa har kastet seg, og roer seg mot land
+      w.bore = 0.62 * Math.exp(-w.breakT * 0.03) * (1 + 0.22 * Math.exp(-w.breakT * 0.9));
       w.lip = 1;
     } else {
       w.lip = smoothstep(0.85, 1, w.steep) * 0.5;
@@ -156,14 +178,18 @@ export class WaveSystem {
     if (this.nextSpawn <= 0) {
       const r = this.rnd;
       if (this.setLeft <= 0) {
-        // nytt sett
-        this.setLeft = 3 + Math.floor(r() * 3);
-        this.emit('set', null);
+        // nytt sett: velg størrelse (liten / middels / stor)
+        const sets = WAVE_TUNE.sets;
+        let x = r() * sets.reduce((a, b) => a + b.weight, 0);
+        this.curSet = sets[sets.length - 1];
+        for (const st of sets) { if ((x -= st.weight) <= 0) { this.curSet = st; break; } }
+        const c = this.curSet.count;
+        this.setLeft = c[0] + Math.floor(r() * (c[1] - c[0] + 1));
+        this.emit('set', this.curSet);
       }
-      const big = this.setLeft > 0;
-      // den siste store bølgen i settet har større sjanse for å være en bomb
-      this.bombChance = this.setLeft === 1 ? 0.45 : 0.2;
-      this.spawn(-235, null, big);
+      // den siste bølgen i et middels eller stort sett kan være en bomb
+      const bomb = this.setLeft === 1 && this.curSet.id !== 'liten' && r() < WAVE_TUNE.bombChance;
+      this.spawn(-235, null, true, this.curSet, bomb);
       this.setLeft--;
       if (this.setLeft > 0) this.nextSpawn = 9.5 + r() * 2.5;
       else {
@@ -200,7 +226,7 @@ export class WaveSystem {
     const edge = smoothstep(140, 100, Math.abs(x));
     const H = w.Hbase * lat * edge * smoothstep(0, 2.2, depth);
     const d = z - this.crestZ(w, x);
-    const Lf = lerp(10, 2.6, w.steep);
+    const Lf = lerp(10, 2.6, w.steep) * clamp(0.7 + w.Hbase * 0.15, 0.85, 1.6);
     let hu;
     if (d >= 0) hu = Math.exp(-(d / Lf) * (d / Lf)) - 0.1 * Math.exp(-Math.pow((d - 2.2 * Lf) / Lf, 2));
     else hu = Math.exp(-(d / 16) * (d / 16));
@@ -210,7 +236,7 @@ export class WaveSystem {
       b = smoothstep(2, -3, inside);
     }
     let hb = d >= 0 ? Math.exp(-(d / 2.4) * (d / 2.4)) : Math.exp(-(d / 8) * (d / 8));
-    hb *= w.bore;
+    hb *= w.bore * (1 + 0.09 * Math.sin(0.55 * x + 2.6 * this.time + d * 0.9) * smoothstep(-6, 0, d));
     const h = H * lerp(hu, hb, b);
     return { h, b, d, Lf, hu, H, inside, u };
   }
@@ -231,19 +257,19 @@ export class WaveSystem {
   }
   // Forutsi brutt-andel ved x om t sekunder (for varsel/timing)
   predictInside(w, x, t) {
+    const u = x - w.peak;
     if (!w.started) {
       // hvor lenge til den begynner å bryte?
       const crestPeak = w.zc - KC * w.peak * w.peak;
       const tb = (w.breakZ - crestPeak) / Math.max(1, w.c);
       if (tb > t) return 1000;
       const tt = t - tb;
-      const u = x - w.peak;
       return u < 0 ? -u - w.peelL * tt * 0.8 : u - w.peelR * tt * 0.8;
     }
-    const closing = w.zc + w.c * t > w.closeZ;
-    const mult = closing ? 2.5 : 1;
-    const pl = w.peelL || (closing ? 2.6 : 0), pr = w.peelR || (closing ? 2.6 : 0);
-    const u = x - w.peak;
+    const mult = this.closeMult(w, w.zc + w.c * t);
+    const closing = w.zc + w.c * t > w.closeZ - 12;
+    const pl = (w.peelL ? this.peelAt(w, w.peak - w.wL, w.peelL) : 0) || (closing ? 2.6 : 0);
+    const pr = (w.peelR ? this.peelAt(w, w.peak + w.wR, w.peelR) : 0) || (closing ? 2.6 : 0);
     return u < 0 ? -u - (w.wL + pl * t * mult) : u - (w.wR + pr * t * mult);
   }
   nextSetIn() { return this.setLeft > 0 ? 0 : this.nextSpawn; }
